@@ -86,6 +86,8 @@ export interface LocationVisual {
   shallowColor: number;
   foamTint: number;
   fogColor: number;
+  /** Cobertura de nuvens, de 0 (céu limpo) a 1 (encoberto). */
+  clouds: number;
   scenery: 'praia' | 'pontal' | 'piscina';
 }
 

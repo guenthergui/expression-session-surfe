@@ -3,7 +3,7 @@ import { DEFAULT_LOOK, type Look } from '../data/cosmetics';
 import { findBoard, findFin } from '../data/equipment';
 import { findLocation } from '../data/locations';
 import type { CameraMode, Quality } from '../core/save';
-import type { Conditions, WindType } from '../core/types';
+import type { Conditions, LocationVisual, WindType } from '../core/types';
 import type { AnimFrame, SprayEvent } from '../game/AerialAnimator';
 import { breakX, createWave, crestHeight, crestOffset, mainProfile, surfaceHeight, type WaveState } from '../sim/waveField';
 import { BoardModel } from './BoardModel';
@@ -47,6 +47,7 @@ export class World {
   private tmp = new THREE.Vector3();
   private tmp2 = new THREE.Vector3();
   private lastTime = 0;
+  private skyClock = 0;
   /** Piso do vestiário: um disco de luz suave sob o surfista, no lugar do mar. */
   private showroomFloor: THREE.Mesh | null = null;
 
@@ -103,6 +104,7 @@ export class World {
     this.quality = q;
     this.stage.applyQuality(q);
     this.env.applyShadows(this.stage.profile.shadowSize);
+    this.scenery.setDetail(this.stage.profile.sceneryDetail);
     // Recria a malha do oceano e as partículas com a nova densidade.
     this.stage.scene.remove(this.ocean.mesh, this.ocean.far, this.ocean.lip, this.spray.points);
     this.ocean.dispose();
@@ -112,7 +114,7 @@ export class World {
     this.spray = new Spray(this.stage.scene, this.stage.profile.particles);
     this.applyWind();
     const loc = findLocation(this.locationId || 'pico-leste');
-    this.env.apply(loc.visual, this.wave.windSpeed);
+    this.applyEnv(loc.visual, this.wave.windSpeed);
   }
 
   setCameraMode(mode: CameraMode) {
@@ -124,9 +126,9 @@ export class World {
     if (locationId !== this.locationId) {
       this.locationId = locationId;
       this.ocean.setColors(loc.visual);
-      this.scenery.build(loc.visual);
+      this.scenery.build(loc.visual, this.stage.profile.sceneryDetail);
     }
-    this.env.apply(loc.visual, loc.windAffects ? c.windSpeed : 0);
+    this.applyEnv(loc.visual, loc.windAffects ? c.windSpeed : 0);
     this.wave = createWave({
       height: c.height,
       power: c.power,
@@ -143,11 +145,18 @@ export class World {
     this.rig.resetDynamics();
   }
 
+  private applyEnv(v: LocationVisual, windSpeed: number) {
+    this.env.apply(v, windSpeed);
+    this.ocean.setLight(this.env.sunDir, this.env.sun.color);
+    this.spray.setLight(this.env.sun.color, this.env.hemi.color, this.env.sun.intensity, this.stage.renderer.toneMappingExposure);
+  }
+
   private applyWind() {
     const w = this.wave;
     const k = w.windSpeed / 3.6;
     this.windVec.set(w.windDir.x * k, 0, w.windDir.z * k);
     this.spray.wind.copy(this.windVec).multiplyScalar(0.7);
+    this.env.clouds.setWind(w.windDir.x * (0.3 + w.windSpeed / 30), w.windDir.z * (0.3 + w.windSpeed / 30));
   }
 
   /** Troca prancha e quilhas (função) e aplica a aparência do surfista e do equipamento. */
@@ -274,6 +283,8 @@ export class World {
     while (this.wake.length && this.wake[0].age > WAKE_LIFE) this.wake.shift();
     this.wave.time = waveTime;
     this.ocean.update(this.wave, focusX - 6, this.wake);
+    this.skyClock += dt;
+    this.env.update(this.skyClock, this.stage.camera);
     this.crestSpray(dt);
     this.spray.setScale(this.stage.renderer.domElement.height);
     this.spray.update(dt);

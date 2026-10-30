@@ -3,7 +3,7 @@ import { colorOf, type BoardLook, type FinLook } from '../data/cosmetics';
 import { boardMeters } from '../data/equipment';
 import type { Board, FinSetup } from '../core/types';
 import { boardArtTexture } from './paint';
-import { padTexture, waxTexture } from './textures';
+import { microNormalTexture, padTexture, waxTexture } from './textures';
 
 // Prancha 3D gerada a partir das medidas reais (em metros): outline, rocker,
 // distribuição de espessura, bordas arredondadas, deck abaulado, quilhas e
@@ -28,6 +28,7 @@ export class BoardModel {
   readonly leashPlug = new THREE.Object3D();
   private body: THREE.Mesh;
   private bodyMat: THREE.MeshPhysicalMaterial;
+  private resin: THREE.Texture;
   private parts: THREE.Mesh[] = [];
   private finMat: THREE.MeshPhysicalMaterial;
   private fins: THREE.Mesh[] = [];
@@ -37,6 +38,12 @@ export class BoardModel {
   constructor(readonly board: Board, fins: FinSetup, look: BoardLook, finLook: FinLook) {
     this.shape = boardMeters(board.dims);
     this.bodyMat = new THREE.MeshPhysicalMaterial({ metalness: 0, sheen: 0.2 });
+    // Verniz de resina com leve "casca de laranja": o reflexo do céu ondula de leve, como numa prancha de verdade.
+    this.resin = microNormalTexture(23).clone();
+    this.resin.needsUpdate = true;
+    this.resin.repeat.set(9, 3);
+    this.bodyMat.clearcoatNormalMap = this.resin;
+    this.bodyMat.clearcoatNormalScale.set(0.06, 0.06);
     this.finMat = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: 0 });
     this.body = new THREE.Mesh(this.buildBody(), this.bodyMat);
     this.body.castShadow = true;
@@ -327,6 +334,7 @@ export class BoardModel {
   dispose() {
     this.body.geometry.dispose();
     this.bodyMat.dispose();
+    this.resin.dispose();
     for (const p of this.parts) {
       p.geometry.dispose();
       (p.material as THREE.Material).dispose();

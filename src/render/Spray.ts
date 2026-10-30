@@ -27,7 +27,7 @@ export class Spray {
     g.setAttribute('size', new THREE.BufferAttribute(this.size, 1));
     g.setAttribute('alpha', new THREE.BufferAttribute(this.alpha, 1));
     const mat = new THREE.ShaderMaterial({
-      uniforms: { map: { value: sprayTexture() }, scale: { value: 600 } },
+      uniforms: { map: { value: sprayTexture() }, scale: { value: 600 }, tint: { value: new THREE.Color(2.4, 2.5, 2.6) } },
       vertexShader: `
         attribute float size;
         attribute float alpha;
@@ -41,10 +41,14 @@ export class Spray {
         }`,
       fragmentShader: `
         uniform sampler2D map;
+        uniform vec3 tint;
         varying float vAlpha;
         void main() {
           vec4 t = texture2D(map, gl_PointCoord);
-          gl_FragColor = vec4(vec3(0.96, 0.98, 1.0), t.a * vAlpha);
+          // Borda bem suave: a nuvem de gotas não vira bolinhas.
+          gl_FragColor = vec4(tint, t.a * t.a * vAlpha);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
         }`,
       transparent: true,
       depthWrite: false,
@@ -52,6 +56,12 @@ export class Spray {
     this.points = new THREE.Points(g, mat);
     this.points.frustumCulled = false;
     scene.add(this.points);
+  }
+
+  /** Gotas tomam a cor da luz do local (douradas ao entardecer), com o mesmo tone mapping da cena. */
+  setLight(sun: THREE.Color, sky: THREE.Color, sunIntensity: number, exposure: number) {
+    const tint = (this.points.material as THREE.ShaderMaterial).uniforms.tint.value as THREE.Color;
+    tint.copy(sun).multiplyScalar(sunIntensity * 0.32).add(sky.clone().multiplyScalar(0.35)).multiplyScalar(0.9 / Math.max(0.05, exposure) / 1.7);
   }
 
   setScale(viewportHeight: number) {

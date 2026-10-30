@@ -11,7 +11,9 @@ Tudo é gerado por código no próprio projeto:
 | Prancha | Malha gerada das medidas reais: outline, rocker, espessura, bordas, quilhas e deck pad | `src/render/BoardModel.ts` |
 | Oceano e onda | Malha deslocada pelo campo de altura de `src/sim/waveField.ts` | `src/render/Ocean.ts` |
 | Céu | Objeto `Sky` do Three.js (exemplos oficiais, licença MIT) | `src/render/Environment.ts` |
-| Pós-processamento (Ultra) | `EffectComposer`, `UnrealBloomPass` e `OutputPass` do Three.js (licença MIT) | `src/render/Stage.ts` |
+| Pós-processamento | `EffectComposer`, `RenderPass`, `UnrealBloomPass`, `ShaderPass` e `OutputPass` do Three.js (licença MIT); gradação de cor própria | `src/render/Stage.ts` |
+| Nuvens | Shader próprio de ruído fractal projetado num plano de nuvens | `src/render/Clouds.ts` |
+| Cenário | Morros de ruído fractal com mata instanciada, casas, coqueiros, guarda-sóis, farol e pedras, tudo gerado por código | `src/render/Scenery.ts` |
 | Texturas | Pele, neoprene, cabelo, arte da prancha, tatuagens, areia, pedra e concreto desenhados em canvas | `src/render/textures.ts` |
 | Sons | Sintetizados com Web Audio (ruído filtrado e osciladores) | `src/audio/Sfx.ts` |
 

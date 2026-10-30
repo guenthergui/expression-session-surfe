@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
 import type { LocationVisual } from '../core/types';
+import { Clouds } from './Clouds';
 import type { Stage } from './Stage';
 
 // Céu físico (espalhamento atmosférico), sol direcional com sombras, luz
@@ -15,10 +16,12 @@ export class Environment {
   private pmrem: THREE.PMREMGenerator;
   private envRT: THREE.WebGLRenderTarget | null = null;
   private skyScene = new THREE.Scene();
+  readonly clouds: Clouds;
 
   constructor(private stage: Stage) {
     this.sky.scale.setScalar(3000);
     stage.scene.add(this.sky);
+    this.clouds = new Clouds(stage.scene, stage.profile.cloudOctaves);
     stage.scene.add(this.hemi);
     this.sun.castShadow = true;
     this.sun.shadow.bias = -0.0004;
@@ -51,8 +54,14 @@ export class Environment {
     this.sun.intensity = 2.2 + 1.6 * (1 - warm);
     this.hemi.intensity = 0.45 + 0.3 * (1 - warm);
     this.stage.renderer.toneMappingExposure = v.exposure;
+    this.clouds.setOctaves(this.stage.profile.cloudOctaves);
+    this.clouds.apply(this.sunDir, v.sunElevation, v.clouds, v.exposure);
+    // Entardecer puxa a gradação de cor para o quente.
+    this.stage.setGrade(0.03 + 0.07 * warm);
     const far = this.stage.profile.renderDistance;
-    this.stage.scene.fog = new THREE.Fog(v.fogColor, Math.min(250, far * 0.25), far * 0.9);
+    // Neblina exponencial: perspectiva atmosférica mais natural que a linear (morros ao fundo azulados).
+    // Densidade fixa (o mesmo ar em qualquer qualidade); só aumenta quando a distância de renderização é curta.
+    this.stage.scene.fog = new THREE.FogExp2(v.fogColor, Math.max(0.00088, 2 / far));
 
     // Mapa de ambiente a partir do céu.
     this.skyScene.clear();
@@ -73,6 +82,10 @@ export class Environment {
     this.sun.shadow.mapSize.set(size, size);
     this.sun.shadow.map?.dispose();
     this.sun.shadow.map = null;
+  }
+
+  update(time: number, camera: THREE.Camera) {
+    this.clouds.update(time, camera.position);
   }
 
   /** O sol e a área de sombra acompanham o surfista. */

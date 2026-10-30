@@ -67,6 +67,15 @@ export class Ocean {
   private rowTrig = new Float64Array(12);
   private detailA: THREE.Texture | null = null;
   private detailB: THREE.Texture | null = null;
+  private farNormal: THREE.Texture | null = null;
+  /** Luz do sol e cores para a espuma e a translucidez da crista (compartilhados com o shader). */
+  private uniforms = {
+    uTime: { value: 0 },
+    uSunDir: { value: new THREE.Vector3(0, 1, 0) },
+    uSunColor: { value: new THREE.Color(1, 1, 1) },
+    uSssColor: { value: new THREE.Color(0x1fb5a8) },
+    uFoamColor: { value: new THREE.Color(0.93, 0.96, 0.98) },
+  };
   private cols: { x: number; trig: Float64Array; edgeX: number; offset: number; crestH: number; broken: number; nearBreak: number }[] = [];
 
   constructor(scene: THREE.Scene, step: number, detailNormals = true) {
@@ -78,6 +87,7 @@ export class Ocean {
     const pos = new Float32Array(nx * nz * 3);
     const col = new Float32Array(nx * nz * 3);
     const foam = new Float32Array(nx * nz);
+    const thin = new Float32Array(nx * nz);
     const idx: number[] = [];
     for (let j = 0; j < nz - 1; j++) {
       for (let i = 0; i < nx - 1; i++) {
@@ -89,6 +99,7 @@ export class Ocean {
     this.geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     this.geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     this.geo.setAttribute('foam', new THREE.BufferAttribute(foam, 1));
+    this.geo.setAttribute('thin', new THREE.BufferAttribute(thin, 1));
     this.geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(nx * nz * 3), 3));
     this.geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(nx * nz * 2), 2));
     this.heights = new Float32Array(nx * nz);
@@ -97,10 +108,11 @@ export class Ocean {
       // Água tem pouca reflexão difusa: o tom vem quase todo da cor de profundidade.
       color: 0x6a6a6a,
       vertexColors: true,
-      roughness: 0.2,
+      roughness: 0.17,
       metalness: 0,
-      envMapIntensity: 0.28,
-      specularIntensity: 0.45,
+      ior: 1.333,
+      envMapIntensity: 0.34,
+      specularIntensity: 0.55,
       side: THREE.DoubleSide,
     });
     if (detailNormals) {
@@ -114,18 +126,61 @@ export class Ocean {
       this.material.normalMap = this.detailA;
       this.material.normalScale.set(0.16, 0.16);
       this.material.clearcoat = 0.3;
-      this.material.clearcoatRoughness = 0.14;
+      this.material.clearcoatRoughness = 0.1;
       this.material.clearcoatNormalMap = this.detailB;
       this.material.clearcoatNormalScale.set(0.1, 0.1);
     }
+    const u = this.uniforms;
     this.material.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, u);
       shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\nattribute float foam;\nvarying float vFoam;')
-        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvFoam = foam;');
+        .replace('#include <common>', '#include <common>\nattribute float foam;\nattribute float thin;\nvarying float vFoam;\nvarying float vThin;\nvarying vec3 vWPos;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvFoam = foam;\nvThin = thin;\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', '#include <common>\nvarying float vFoam;')
-        .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.96, 0.98), vFoam);')
-        .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.85, vFoam);');
+        .replace('#include <common>', `#include <common>
+          varying float vFoam;
+          varying float vThin;
+          varying vec3 vWPos;
+          uniform float uTime;
+          uniform vec3 uSunDir;
+          uniform vec3 uSunColor;
+          uniform vec3 uSssColor;
+          uniform vec3 uFoamColor;
+          float oHash(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+          float oNoise(vec2 p) {
+            vec2 i = floor(p); vec2 f = fract(p); vec2 w = f * f * (3.0 - 2.0 * f);
+            return mix(mix(oHash(i), oHash(i + vec2(1.0, 0.0)), w.x), mix(oHash(i + vec2(0.0, 1.0)), oHash(i + vec2(1.0, 1.0)), w.x), w.y);
+          }
+          // Padrão rendado da espuma: manchas grandes que se desfazem em bolhas.
+          float foamPattern(vec2 p) {
+            float a = oNoise(p * 0.7 + vec2(uTime * 0.05, uTime * 0.02));
+            float b = oNoise(p * 2.3 - vec2(uTime * 0.11, -uTime * 0.04));
+            float c = oNoise(p * 7.1 + vec2(uTime * 0.2, uTime * 0.13));
+            return a * 0.5 + b * 0.32 + c * 0.18;
+          }`)
+        .replace('#include <color_fragment>', `#include <color_fragment>
+          float foamP = foamPattern(vWPos.xz);
+          float foamF = min(clamp((vFoam * 1.25 - (1.0 - foamP) * 1.05) * 2.4, 0.0, 1.0), vFoam * 1.5);
+          diffuseColor.rgb = mix(diffuseColor.rgb, uFoamColor, foamF);`)
+        .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.85, foamF);')
+        .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+          // Translucidez: a luz do sol atravessa a água fina da crista e do alto da face.
+          vec3 toCam = normalize(cameraPosition - vWPos);
+          float back = pow(clamp(dot(-toCam, uSunDir) * 0.5 + 0.5, 0.0, 1.0), 4.0);
+          float sss = vThin * (0.18 + back * 1.1) * (1.0 - foamF);
+          totalEmissiveRadiance += uSssColor * uSunColor * sss;`);
+      if (detailNormals) {
+        // Duas leituras do mapa em escalas e direções diferentes (some a repetição)
+        // e relevo que suaviza com a distância (some o padrão de grade no horizonte).
+        shader.fragmentShader = shader.fragmentShader.replace('#include <normal_fragment_maps>', `
+          vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;
+          vec2 uvB = mat2(0.8, -0.6, 0.6, 0.8) * vNormalMapUv * 0.37 + vec2(uTime * -0.006, uTime * 0.008);
+          vec3 mapB = texture2D( normalMap, uvB ).xyz * 2.0 - 1.0;
+          mapN = vec3(mapN.xy + mapB.xy * 0.7, mapN.z);
+          float nFade = mix(1.0, 0.07, smoothstep(12.0, 140.0, length(vViewPosition)));
+          mapN.xy *= normalScale * nFade;
+          normal = normalize( tbn * mapN );`);
+      }
     };
 
     this.mesh = new THREE.Mesh(this.geo, this.material);
@@ -133,7 +188,15 @@ export class Ocean {
     this.mesh.frustumCulled = false;
     scene.add(this.mesh);
 
-    const farMat = new THREE.MeshPhysicalMaterial({ color: 0x0a3d5c, roughness: 0.15, metalness: 0, envMapIntensity: 0.3 });
+    const farMat = new THREE.MeshPhysicalMaterial({ color: 0x0a3d5c, roughness: 0.16, metalness: 0, ior: 1.333, envMapIntensity: 0.42 });
+    if (detailNormals) {
+      // Ondulação até o horizonte: o mesmo mapa de normais em escala bem maior.
+      this.farNormal = waterNormalTexture(3).clone();
+      this.farNormal.needsUpdate = true;
+      this.farNormal.repeat.set(220, 220);
+      farMat.normalMap = this.farNormal;
+      farMat.normalScale.set(0.12, 0.12);
+    }
     this.far = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000).rotateX(-Math.PI / 2), farMat);
     // Abaixo dos cavados do swell, para o plano distante nunca aparecer através da malha.
     this.far.position.y = -0.5;
@@ -145,6 +208,8 @@ export class Ocean {
     this.lipGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(lipN * 3), 3));
     this.lipGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(lipN * 3), 3));
     this.lipGeo.setAttribute('foam', new THREE.BufferAttribute(new Float32Array(lipN), 1));
+    // O lip é a parte mais fina da onda: translucidez máxima.
+    this.lipGeo.setAttribute('thin', new THREE.BufferAttribute(new Float32Array(lipN).fill(1), 1));
     this.lipGeo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(lipN * 2), 2));
     const lipIdx: number[] = [];
     for (let i = 0; i < 27; i++) {
@@ -160,10 +225,19 @@ export class Ocean {
     scene.add(this.lip);
   }
 
+  /** Direção e cor do sol, para a translucidez da crista. */
+  setLight(sunDir: THREE.Vector3, sunColor: THREE.Color) {
+    this.uniforms.uSunDir.value.copy(sunDir);
+    this.uniforms.uSunColor.value.copy(sunColor);
+  }
+
   setColors(v: LocationVisual) {
     this.deep.setHex(v.deepColor);
     this.shallow.setHex(v.shallowColor);
     this.foamTint.setHex(v.foamTint);
+    this.uniforms.uFoamColor.value.setHex(v.foamTint).multiplyScalar(0.95);
+    // A luz que atravessa a água sai mais verde-azulada que a própria cor rasa.
+    this.uniforms.uSssColor.value.setHex(v.shallowColor).lerp(new THREE.Color(0x1fd0a0), 0.35).multiplyScalar(0.55);
     (this.far.material as THREE.MeshPhysicalMaterial).color.setHex(v.deepColor);
   }
 
@@ -174,12 +248,15 @@ export class Ocean {
     const pos = this.geo.attributes.position.array as Float32Array;
     const col = this.geo.attributes.color.array as Float32Array;
     const foam = this.geo.attributes.foam.array as Float32Array;
+    const thinA = this.geo.attributes.thin.array as Float32Array;
+    this.uniforms.uTime.value = w.time;
     const uv = this.geo.attributes.uv.array as Float32Array;
     // As ondulações de detalhe andam com o tempo, em direções diferentes.
     if (this.detailA && this.detailB) {
       this.detailA.offset.set(w.time * 0.011, w.time * 0.017);
       this.detailB.offset.set(-w.time * 0.023, w.time * 0.009);
     }
+    if (this.farNormal) this.farNormal.offset.set(w.time * 0.002, w.time * 0.003);
     const nx = this.xs.length;
     const nz = this.zs.length;
     const H = Math.max(0.3, w.height);
@@ -233,6 +310,7 @@ export class Ocean {
         // A água fica mais clara onde é fina (alto da face) e escura no fundo.
         const thin = s > -0.5 && s < F ? smooth(0.15, 0.95, y / H) : smooth(0.4, 1, y / H) * 0.4;
         const t = Math.min(1, thin * 0.95 + Math.max(0, y) * 0.05);
+        thinA[v] = thin;
         col[k] = dr + sr * t;
         col[k + 1] = dg + sg * t;
         col[k + 2] = db + sb * t;
@@ -246,6 +324,7 @@ export class Ocean {
     this.geo.attributes.position.needsUpdate = true;
     this.geo.attributes.color.needsUpdate = true;
     this.geo.attributes.foam.needsUpdate = true;
+    this.geo.attributes.thin.needsUpdate = true;
     this.geo.attributes.normal.needsUpdate = true;
     this.geo.attributes.uv.needsUpdate = true;
     this.updateLip(w);
@@ -361,6 +440,7 @@ export class Ocean {
     (this.far.material as THREE.Material).dispose();
     this.detailA?.dispose();
     this.detailB?.dispose();
+    this.farNormal?.dispose();
   }
 }
 

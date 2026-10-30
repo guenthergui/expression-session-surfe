@@ -172,16 +172,21 @@ export function waxTexture(): THREE.Texture {
 export function waterNormalTexture(seed: number): THREE.Texture {
   const key = `water-normal-${seed}`;
   if (cache.has(key)) return cache.get(key)!;
-  const N = 256;
+  const N = 512;
   const [c, g] = canvas(N, N);
   const r = rand(seed);
   // Ondas com número inteiro de ciclos por textura, para repetir sem emenda.
-  const waves = Array.from({ length: 9 }, () => ({
-    kx: Math.round((r() - 0.5) * 14),
-    ky: Math.round((r() - 0.5) * 14) || 1,
-    a: 0.4 + r(),
-    p: r() * Math.PI * 2,
-  }));
+  // Espectro largo (de 1 a ~20 ciclos) e direções variadas: sem padrão de grade visível.
+  const waves = Array.from({ length: 22 }, (_, i) => {
+    const k = 1.5 + Math.pow(i / 21, 1.6) * 19;
+    const ang = r() * Math.PI * 2;
+    return {
+      kx: Math.round(Math.cos(ang) * k),
+      ky: Math.round(Math.sin(ang) * k) || 1,
+      a: 0.5 + r() * 0.8,
+      p: r() * Math.PI * 2,
+    };
+  });
   const h = new Float32Array(N * N);
   for (let y = 0; y < N; y++) {
     for (let x = 0; x < N; x++) {
@@ -195,12 +200,55 @@ export function waterNormalTexture(seed: number): THREE.Texture {
     for (let x = 0; x < N; x++) {
       const dx = h[y * N + ((x + 1) % N)] - h[y * N + ((x - 1 + N) % N)];
       const dy = h[((y + 1) % N) * N + x] - h[((y - 1 + N) % N) * N + x];
-      const nx = -dx * 6;
-      const ny = -dy * 6;
+      const nx = -dx * 9;
+      const ny = -dy * 9;
       const len = Math.hypot(nx, ny, 1);
       const i = (y * N + x) * 4;
       img.data[i] = ((nx / len) * 0.5 + 0.5) * 255;
       img.data[i + 1] = ((ny / len) * 0.5 + 0.5) * 255;
+      img.data[i + 2] = ((1 / len) * 0.5 + 0.5) * 255;
+      img.data[i + 3] = 255;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  const t = finish(key, c, false);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+
+/**
+ * Relevo fino e irregular (casca de laranja do verniz, poros de resina),
+ * como mapa de normais que repete sem emenda.
+ */
+export function microNormalTexture(seed: number, bumps = 900): THREE.Texture {
+  const key = `micro-normal-${seed}-${bumps}`;
+  if (cache.has(key)) return cache.get(key)!;
+  const N = 256;
+  const h = new Float32Array(N * N);
+  const r = rand(seed);
+  for (let i = 0; i < bumps; i++) {
+    const cx = r() * N;
+    const cy = r() * N;
+    const rad = 2 + r() * 7;
+    const amp = (r() - 0.5) * 2;
+    for (let y = Math.floor(cy - rad); y <= cy + rad; y++) {
+      for (let x = Math.floor(cx - rad); x <= cx + rad; x++) {
+        const d = Math.hypot(x - cx, y - cy) / rad;
+        if (d >= 1) continue;
+        h[((y + N) % N) * N + ((x + N) % N)] += amp * (1 - d * d) * (1 - d * d);
+      }
+    }
+  }
+  const [c, g] = canvas(N, N);
+  const img = g.createImageData(N, N);
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const dx = h[y * N + ((x + 1) % N)] - h[y * N + ((x - 1 + N) % N)];
+      const dy = h[((y + 1) % N) * N + x] - h[((y - 1 + N) % N) * N + x];
+      const len = Math.hypot(dx, dy, 1);
+      const i = (y * N + x) * 4;
+      img.data[i] = ((-dx / len) * 0.5 + 0.5) * 255;
+      img.data[i + 1] = ((-dy / len) * 0.5 + 0.5) * 255;
       img.data[i + 2] = ((1 / len) * 0.5 + 0.5) * 255;
       img.data[i + 3] = 255;
     }
