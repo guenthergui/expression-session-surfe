@@ -22,6 +22,7 @@ export interface MenuHost extends LockerHost {
   refreshLook(): void;
   setQuality(q: Quality): void;
   setSound(on: boolean): void;
+  setMusic(volume: number): void;
   setCameraMode(mode: CameraMode): void;
   resetProgress(): void;
   click(): void;
@@ -274,6 +275,10 @@ export function settingsScreen(host: MenuHost): HTMLElement {
             <button class="btn small secondary ${p.sound ? 'selected' : ''}" aria-pressed="${p.sound}" data-action="sound" data-on="1">Ligado</button>
             <button class="btn small secondary ${p.sound ? '' : 'selected'}" aria-pressed="${!p.sound}" data-action="sound" data-on="0">Desligado</button>
           </div>
+          <h3>Música tema</h3>
+          <div class="slider-row"><span class="muted">Volume</span>
+            <input type="range" min="0" max="100" step="5" value="${p.music}" data-input="music" aria-label="Volume da música"/>
+            <b data-label="music">${p.music ? `${p.music}%` : 'desligada'}</b></div>
           <h3>Progresso</h3>
           <div class="sub muted">Apaga nível, atributos, domínio, desbloqueios e recordes. Não dá para desfazer.</div>
           <div><button class="btn danger small" data-action="reset">Reiniciar progressão</button></div>
@@ -306,6 +311,13 @@ export function settingsScreen(host: MenuHost): HTMLElement {
       },
       back: () => host.go('menu'),
     }, () => host.click());
+    const music = root.querySelector<HTMLInputElement>('[data-input=music]')!;
+    music.addEventListener('input', () => {
+      state.save.prefs.music = Number(music.value);
+      host.setMusic(state.save.prefs.music);
+      root.querySelector<HTMLElement>('[data-label=music]')!.textContent = state.save.prefs.music ? `${state.save.prefs.music}%` : 'desligada';
+    });
+    music.addEventListener('change', () => persist());
   };
   render();
   return root;
@@ -372,6 +384,7 @@ export interface PauseActions {
   help(): void;
   camera(): void;
   sound(): void;
+  music(): void;
   quit(): void;
   click(): void;
 }
@@ -386,6 +399,7 @@ export function pauseMenu(a: PauseActions): HTMLElement {
           <button class="btn" data-action="resume">${icon('play')} Continuar</button>
           <button class="btn secondary" data-action="camera">${icon('gear')} <span data-label="camera"></span></button>
           <button class="btn secondary" data-action="sound">${icon('gear')} <span data-label="sound"></span></button>
+          <button class="btn secondary" data-action="music">${icon('gear')} <span data-label="music"></span></button>
           <button class="btn secondary" data-action="help">${icon('help')} Como jogar</button>
           <button class="btn danger" data-action="quit">${icon('close')} Sair da bateria</button>
         </div>
@@ -395,6 +409,7 @@ export function pauseMenu(a: PauseActions): HTMLElement {
     const p = state.save.prefs;
     m.querySelector<HTMLElement>('[data-label=camera]')!.textContent = `Câmera: ${p.camera === 'lateral' ? 'lateral' : 'próxima'}`;
     m.querySelector<HTMLElement>('[data-label=sound]')!.textContent = `Som: ${p.sound ? 'ligado' : 'desligado'}`;
+    m.querySelector<HTMLElement>('[data-label=music]')!.textContent = `Música: ${p.music ? 'ligada' : 'desligada'}`;
   };
   bind(m, {
     resume: () => a.resume(),
@@ -405,6 +420,10 @@ export function pauseMenu(a: PauseActions): HTMLElement {
     },
     sound: () => {
       a.sound();
+      labels();
+    },
+    music: () => {
+      a.music();
       labels();
     },
     quit: () => a.quit(),

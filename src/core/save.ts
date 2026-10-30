@@ -39,6 +39,8 @@ export interface Stats {
 export interface Prefs {
   quality: Quality;
   sound: boolean;
+  /** Volume da música tema, de 0 (desligada) a 100. */
+  music: number;
   camera: CameraMode;
 }
 
@@ -89,7 +91,7 @@ export function defaultSave(): SaveData {
     discoveries: [],
     records: { bestHeatScore: 0, bestWaveScore: 0, bestCombo: 0, heatsPlayed: 0, bestExecution: 0 },
     stats: { waves: 0, landed: 0, falls: 0, perfects: 0 },
-    prefs: { quality: 'alta', sound: true, camera: 'lateral' },
+    prefs: { quality: 'alta', sound: true, music: 60, camera: 'lateral' },
     lastSetup: defaultSetup(),
   };
 }
@@ -192,6 +194,7 @@ export function sanitizeSave(raw: unknown): SaveData {
     prefs: {
       quality: QUALITIES.includes(pr.quality as Quality) ? (pr.quality as Quality) : d.prefs.quality,
       sound: typeof pr.sound === 'boolean' ? pr.sound : d.prefs.sound,
+      music: int(pr.music, d.prefs.music, 0, 100),
       camera: pr.camera === 'proxima' ? 'proxima' : 'lateral',
     },
     lastSetup,

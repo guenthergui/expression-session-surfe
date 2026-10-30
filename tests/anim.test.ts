@@ -269,8 +269,8 @@ describe('leash', () => {
 
 describe('configurações', () => {
   it('aceita a qualidade Ultra e o modo de câmera, e corrige valores inválidos', () => {
-    const s = sanitizeSave({ ...defaultSave(), prefs: { quality: 'ultra', sound: false, camera: 'proxima' } });
-    expect(s.prefs).toEqual({ quality: 'ultra', sound: false, camera: 'proxima' });
+    const s = sanitizeSave({ ...defaultSave(), prefs: { quality: 'ultra', sound: false, music: 25, camera: 'proxima' } });
+    expect(s.prefs).toEqual({ quality: 'ultra', sound: false, music: 25, camera: 'proxima' });
     expect(sanitizeSave({ prefs: { quality: 'x', camera: 'y' } }).prefs).toMatchObject({ quality: 'alta', camera: 'lateral' });
   });
 });

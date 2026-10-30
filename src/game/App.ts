@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Sfx } from '../audio/Sfx';
+import { Music } from '../audio/Music';
 import { cloneLook, type Look } from '../data/cosmetics';
 import { findBoard, findFin } from '../data/equipment';
 import { findLocation } from '../data/locations';
@@ -102,6 +103,7 @@ interface Ride {
 export class App implements MenuHost {
   readonly world: World;
   readonly sfx = new Sfx();
+  readonly music = new Music(state.save.prefs.music);
   private ui: HTMLElement;
   private mode: Mode = 'menu';
   private heat: HeatSession | null = null;
@@ -139,7 +141,10 @@ export class App implements MenuHost {
     window.addEventListener('keyup', (e) => this.onKeyUp(e));
     // Se a janela perde o foco com W apertado, a aceleração para.
     window.addEventListener('blur', () => this.ride?.run.setAccelerate(false));
-    window.addEventListener('pointerdown', () => this.sfx.unlock(), { once: false });
+    window.addEventListener('pointerdown', () => {
+      this.sfx.unlock();
+      this.music.unlock();
+    });
     this.go('menu');
   }
 
@@ -154,6 +159,7 @@ export class App implements MenuHost {
     this.world.stage.camera.clearViewOffset();
     this.mode = screen;
     this.heat = null;
+    this.music.setDucked(false);
     this.demoConditions = null;
     this.labFreeze = null;
     this.world.camRig.override = null;
@@ -199,6 +205,10 @@ export class App implements MenuHost {
 
   setSound(on: boolean) {
     this.sfx.setEnabled(on);
+  }
+
+  setMusic(volume: number) {
+    this.music.setVolume(volume);
   }
 
   resetProgress() {
@@ -341,6 +351,12 @@ export class App implements MenuHost {
         persist();
         this.sfx.setEnabled(state.save.prefs.sound);
       },
+      music: () => {
+        const p = state.save.prefs;
+        p.music = p.music > 0 ? 0 : 60;
+        persist();
+        this.music.setVolume(p.music);
+      },
       quit: () => confirmModal(this.ui, 'Sair da bateria?', 'A pontuação desta bateria não será salva.', 'Sair para o menu', () => this.go('menu')),
       click: () => this.click(),
     });
@@ -355,6 +371,7 @@ export class App implements MenuHost {
     save.lastSetup = { ...this.setup };
     persist();
     this.world.setEquipment(this.setup.boardId, this.setup.finId, save.look);
+    this.music.setDucked(true);
     this.heat = new HeatSession(this.setup, { ...save.attributes }, save.unlockedManeuvers, save.discoveries, Math.random, { ...save.mastery });
     this.showIntro();
   }
@@ -481,6 +498,7 @@ export class App implements MenuHost {
 
   private onKey(e: KeyboardEvent) {
     this.sfx.unlock();
+    this.music.unlock();
     const modals = document.querySelectorAll('.modal-bg');
     if (modals.length) {
       if (e.code === 'Escape') {
@@ -663,6 +681,7 @@ export class App implements MenuHost {
     bind(screen, { menu: () => this.go('menu'), skills: () => this.go('skills'), again }, () => this.click());
     this.primary = again;
     this.heat = null;
+    this.music.setDucked(false);
     this.demoConditions = null;
     this.startDemo();
   }
