@@ -2,17 +2,14 @@ import { ATTRIBUTE_LABELS } from '../data/attributes';
 import { findBoard, findFin } from '../data/equipment';
 import { WIND_LABELS, findLocation } from '../data/locations';
 import { sectionLabel } from '../core/conditions';
-import { WAVES_PER_HEAT, type HeatSession, type HeatSummary, type WaveResult } from '../core/heat';
-import { FAMILY_LABELS, GRAB_LABELS, KEY_SYMBOLS, directionLabel, findManeuver } from '../core/maneuvers';
-import type { ChanceBreakdown } from '../core/performance';
+import { CONTROL_LEGEND } from '../core/controls';
+import { WAVES_PER_HEAT, type AerialResult, type HeatSession, type HeatSummary, type WaveResult } from '../core/heat';
+import { FAMILY_LABELS, GRAB_LABELS, TIER_LABELS, directionLabel } from '../core/maneuvers';
 import { xpToNext } from '../core/progression';
 import type { HeatRewards } from '../core/rewards';
-import { JUDGEMENT_LABEL } from '../core/timing';
-import type { AttributeKey, Conditions, Maneuver, Outcome, Phase } from '../core/types';
+import type { AttributeKey, Conditions, Maneuver, Outcome } from '../core/types';
 import { state } from '../game/state';
-import { el, esc, pct, signed } from './dom';
-
-export const PHASE_LABELS: Record<Phase, string> = { impulsao: 'Decolagem', rotacao: 'Rotação', grab: 'Grab', aterrissagem: 'Pouso' };
+import { el, esc, pct } from './dom';
 
 export const OUTCOME_TEXT: Record<Outcome, [string, string]> = {
   limpa: ['POUSO LIMPO!', 'good'],
@@ -102,30 +99,37 @@ function relevant(m: Maneuver): [AttributeKey, number][] {
   return (Object.entries(m.weights) as [AttributeKey, number][]).sort((a, b) => b[1] - a[1]).slice(0, 4);
 }
 
-export function sequenceHtml(m: Maneuver): string {
-  return `<div class="seq">${m.sequence.map((s) => `<div class="key k-${s.phase} ${s.essential ? 'essential' : ''}">${KEY_SYMBOLS[s.key]}<small>${PHASE_LABELS[s.phase]}</small></div>`).join('')}</div>`;
+const EXT_LABELS: Record<NonNullable<Maneuver['extension']>, string> = { christ: 'Christ', superman: 'Superman', superwoman: 'Superwoman', varial: 'Varial (prancha gira)' };
+
+const num = (v: number, d = 1) => v.toFixed(d).replace('.', ',');
+
+function rotationText(m: Maneuver): string {
+  if (!m.rotation) return 'sem giro';
+  const axis = m.axis === 'flip' ? ' (flip)' : m.axis === 'rodeo' ? ' (rodeo)' : '';
+  return `${m.rotation}°${axis} · ~${m.spinRate}°/s`;
 }
 
-export function challengeCard(heat: HeatSession, m: Maneuver, est: ChanceBreakdown): HTMLElement {
+/** Ficha do aéreo sorteado: requisitos físicos e como fazer. */
+export function challengeCard(heat: HeatSession, m: Maneuver): HTMLElement {
   const a = heat.attributes;
   const rec = Object.entries(m.recommended) as [AttributeKey, number][];
-  const vars = m.variations.map((id) => findManeuver(id)?.name).filter(Boolean).join(', ');
   return el(`
     <div class="panel center-card">
-      <div class="tag ${m.experimental ? 'warn' : ''}">${m.experimental ? `Desafio experimental · inspirado no ${esc(m.origin ?? '')}` : 'Desafio da onda'}</div>
+      <div class="tag ${m.experimental ? 'warn' : ''}">Desafio da onda · ${TIER_LABELS[m.tier]}${m.experimental ? ' · descoberta' : ''} · vale ×1,5</div>
       <div class="maneuver-name">${esc(m.name)}</div>
       <div class="grid2">
-        <span class="muted">Família</span><span>${FAMILY_LABELS[m.family]}</span>
-        <span class="muted">Direção · rotação</span><span>${directionLabel(m)} · ${m.rotation ? `${m.rotation}°${m.axis === 'flip' ? ' (flip)' : ''}` : 'sem giro'}</span>
-        <span class="muted">Grab</span><span>${m.grab ? GRAB_LABELS[m.grab] : 'nenhum'}</span>
-        <span class="muted">Dificuldade · pontuação-base</span><span>${m.difficulty}/100 · ${m.baseScore}</span>
+        <span class="muted">Direção · rotação</span><span>${directionLabel(m)} · ${rotationText(m)}</span>
+        <span class="muted">Grab · extensão</span><span>${m.grab ? GRAB_LABELS[m.grab] : 'nenhum'}${m.extension ? ` · ${EXT_LABELS[m.extension]}` : ''}</span>
+        <span class="muted">Aproximação</span><span>${Math.round(m.minSpeed * 3.6)} km/h ou mais · subida de ${m.approach[0]}° a ${m.approach[1]}°</span>
+        <span class="muted">Voo de referência</span><span>${num(m.height)} m acima do lip · ${num(m.airTime, 2)} s no ar</span>
+        <span class="muted">Corpo · prancha</span><span>${esc(m.body)} ${esc(m.board)}</span>
+        <span class="muted">Pouso</span><span>${esc(m.landing)}</span>
+        <span class="muted">Dificuldade · base</span><span>${m.difficulty}/100 · ${m.baseScore} · controle ${Math.round(m.control * 100)}%</span>
         <span class="muted">Skills relevantes</span><span>${relevant(m).map(([k]) => `${ATTRIBUTE_LABELS[k]} ${a[k]}`).join(' · ')}</span>
         <span class="muted">Recomendado</span><span>${rec.length ? rec.map(([k, v]) => `<span class="${a[k] >= v ? 'good' : 'bad'}">${ATTRIBUTE_LABELS[k]} ${v}</span>`).join(' · ') : '—'}</span>
-        ${vars ? `<span class="muted">Variações</span><span>${esc(vars)}</span>` : ''}
-        ${m.restrictions.length ? `<span class="muted">Restrições</span><span>${esc(m.restrictions.join(' · '))}</span>` : ''}
       </div>
-      <div style="padding-bottom:16px">${sequenceHtml(m)}</div>
-      <div class="muted" style="font-size:14px">Na onda: <span class="kbd">D</span> para o drop, segure <span class="kbd">W</span> para ganhar velocidade e <span class="kbd">Espaço</span> perto do lip para decolar. Chance antes da execução: <b class="warn">${est.P}%</b>; seus comandos ainda somam de −25 a +35 pontos e a velocidade, até +5. Borda branca = comando essencial.</div>
+      <div class="howto"><b>Como fazer:</b> ${esc(m.howTo)}</div>
+      <div class="muted" style="font-size:14px">Na onda: <span class="kbd">D</span> para o drop, setas para navegar e <span class="kbd">W</span> para bombear. Segure <span class="kbd">Espaço</span> subindo a face e solte perto do lip. Qualquer aéreo pontua; o desafio vale mais.</div>
       <div class="actions">
         <button class="btn secondary" data-action="respin" ${heat.respinAvailable ? '' : 'disabled'}>${heat.respinAvailable ? 'Girar de novo (1 por bateria)' : 'Giro extra usado'}</button>
         <button class="btn" data-action="go">Remar! <span class="kbd">Espaço</span></button>
@@ -133,46 +137,65 @@ export function challengeCard(heat: HeatSession, m: Maneuver, est: ChanceBreakdo
     </div>`);
 }
 
-export function lane(m: Maneuver): HTMLElement {
-  const root = el(`
-    <div class="lane">
-      <div class="lane-info"><span data-lane="phase">Preparação</span><span data-lane="hint"></span></div>
-      <div class="lane-track panel">
-        <div class="lane-perfect" data-lane="perfect"></div>
-        <div class="lane-hit" data-lane="hit"></div>
-        ${m.sequence.map((s, i) => `<div class="lane-note k-${s.phase} ${s.key === 'SPACE' ? 'wide' : ''} ${s.essential ? 'essential' : ''}" data-note="${i}">${KEY_SYMBOLS[s.key]}</div>`).join('')}
+/** Painel da onda: velocidade, zona crítica, compressão, tempo e leitura do voo. */
+export function rideHud(challenge: Maneuver): HTMLElement {
+  const legend = (rows: readonly (readonly [string, string])[]) => rows.map(([k, t]) => `<span class="kbd">${esc(k)}</span><span>${esc(t)}</span>`).join('');
+  return el(`
+    <div class="ride-hud">
+      <div class="panel ride-meters">
+        <div class="meter"><span class="label">Velocidade</span><div class="bar"><span data-rh="speed"></span></div><b data-rh="kmh">0 km/h</b></div>
+        <div class="meter"><span class="label">Zona crítica</span><div class="bar crit"><span data-rh="crit"></span></div><b data-rh="gap"></b></div>
+        <div class="meter"><span class="label">Compressão</span><div class="bar comp"><span data-rh="comp"></span></div><b data-rh="ready"></b></div>
+        <div class="meter"><span class="label">Onda</span><b data-rh="time">—</b><span class="muted" data-rh="wavepts"></span></div>
+      </div>
+      <div class="panel ride-msg" data-rh="msg">Pressione D para entrar na onda</div>
+      <div class="panel air-readout" data-rh="air" hidden></div>
+      <div class="panel ride-legend" data-rh="legend">
+        <div class="muted">Desafio: <b class="warn">${esc(challenge.name)}</b> · ${esc(challenge.howTo)}</div>
+        <div class="help-list" data-rh="lg-agua">${legend(CONTROL_LEGEND.agua)}</div>
+        <div class="help-list" data-rh="lg-ar" hidden>${legend(CONTROL_LEGEND.ar)}</div>
       </div>
     </div>`);
-  return root;
 }
 
-export function nextPrompt(): HTMLElement {
-  return el(`
-    <div class="panel next-prompt">
-      <span class="muted">Próximo</span>
-      <div class="key" data-np="key">—</div>
-      <span data-np="phase"></span>
-      <div class="bar countdown"><span data-np="bar" style="width:0%"></span></div>
-      <span class="muted" data-np="time"></span>
-    </div>`);
+function aerialLine(a: AerialResult): string {
+  const [txt, cls] = OUTCOME_TEXT[a.landing.outcome];
+  const s = a.score;
+  const r = a.record;
+  const tags = [
+    a.challenge ? '<span class="warn">DESAFIO ×1,5</span>' : '',
+    a.newDiscovery ? '<span class="warn">DESCOBERTA</span>' : '',
+    a.unlocked ? '' : '<span class="bad">não desbloqueado</span>',
+    a.rodeAway ? '<span class="good">saiu surfando +10%</span>' : '',
+  ].filter(Boolean).join(' · ');
+  const mult = a.landing.outcome === 'queda'
+    ? `<span class="muted">${esc(a.landing.note)}</span>`
+    : `<span class="muted">${s.base} × exec ${num(s.execution, 2)} × pouso ${num(s.landing, 2)} × dif ${num(s.difficulty, 2)} × novidade ${num(s.novelty, 2)} × sequência ${num(s.sequence, 2)}${s.challenge !== 1 ? ` × desafio ${num(s.challenge, 1)}` : ''}${s.locked !== 1 ? ` × ${num(s.locked, 1)}` : ''}</span>`;
+  return `
+    <div class="aerial-row">
+      <div><b>${esc(a.name)}</b> <span class="${cls}">${txt}</span> ${tags}</div>
+      <div class="muted">${num(r.apex)} m · ${num(r.airTime, 2)} s · ${Math.round(Math.abs(r.yaw))}°${Math.abs(r.flip) > 90 ? ` · flip ${Math.round(Math.abs(r.flip))}°` : ''} · ${Math.round(r.launch.speed * 3.6)} km/h · execução ${pct(a.quality)}</div>
+      <div>${mult} <b class="warn">${a.points}</b></div>
+    </div>`;
 }
+
+const END_TEXT: Record<WaveResult['endedBy'], string> = {
+  fim: 'Onda completa',
+  queda: 'Terminou em queda',
+  fechou: 'A onda fechou',
+};
 
 export function waveResultCard(r: WaveResult, last: boolean): HTMLElement {
-  const [txt, cls] = OUTCOME_TEXT[r.outcome];
-  const c = r.chance;
-  const s = r.score;
-  const steps = r.steps.map((x) => `<span class="chip">${KEY_SYMBOLS[x.step.key]} <b class="${x.judgement === 'perfect' ? 'good' : x.judgement === 'miss' ? 'bad' : 'warn'}">${JUDGEMENT_LABEL[x.judgement]}</b></span>`).join('');
+  const [txt, cls] = r.aerials.length ? OUTCOME_TEXT[r.outcome] : ['SEM AÉREO', 'warn'];
   return el(`
     <div class="panel center-card">
-      <div class="tag">Onda ${r.waveIndex + 1} · ${esc(r.maneuver.name)}</div>
+      <div class="tag">Onda ${r.waveIndex + 1} · ${END_TEXT[r.endedBy]} · desafio ${esc(r.maneuver.name)} ${r.challengeDone ? '<span class="good">✓</span>' : '<span class="muted">✗</span>'}</div>
       <h1 class="${cls}" style="font-size:38px">${txt}</h1>
-      <div class="options">${steps}</div>
+      <div class="aerial-list">${r.aerials.length ? r.aerials.map(aerialLine).join('') : '<div class="muted">Nenhum aéreo nesta onda: suba a face rápido e solte o espaço perto do lip.</div>'}</div>
       <div class="grid2">
-        <span class="muted">Execução</span><span>${pct(r.execution.quality)}${r.execution.essentialFailed ? ' · <span class="bad">comando essencial perdido</span>' : ''}${r.execution.grabMissed ? ' · <span class="warn">grab não feito</span>' : ''}</span>
-        <span class="muted">Chance de pouso</span><span><b>${c.P}%</b> · rolagem ${r.roll.toFixed(1)}</span>
-        <span class="muted">Composição</span><span>S ${c.S.toFixed(1)} · D ${c.D} · E ${signed(c.E, 1)} · C ${signed(c.C, 1)} · L ${signed(c.L, 1)}</span>
-        <span class="muted">Pontos</span><span>${r.outcome === 'queda' ? '0 · combo zerado' : `<b class="warn" style="font-size:20px">${s.total}</b>`}</span>
-        ${r.outcome === 'queda' ? '' : `<span class="muted">Multiplicadores</span><span>${s.base} × exec ${s.execution.toFixed(2)} × pouso ${s.landing.toFixed(2)} × dif ${s.difficulty.toFixed(2)} × novidade ${s.novelty.toFixed(2)} × combo ${s.combo.toFixed(2)}</span>`}
+        <span class="muted">Aéreos</span><span>${r.subtotal}</span>
+        <span class="muted">Combo</span><span>× ${num(r.combo, 2)}${r.finish !== 1 ? ` · fim da onda × ${num(r.finish, 2)}` : ''}</span>
+        <span class="muted">Total da onda</span><span><b class="warn" style="font-size:20px">${r.total}</b></span>
         <span class="muted">Combo · XP</span><span>x${r.comboAfter} · +${r.xp} XP${r.newDiscovery ? ' · <span class="warn">DESCOBERTA NOVA ×1,5</span>' : ''}</span>
       </div>
       <div class="actions"><button class="btn" data-action="next">${last ? 'Resultado da bateria' : 'Próxima onda'} <span class="kbd">Espaço</span></button></div>
@@ -200,16 +223,16 @@ export function heatResultScreen(sum: HeatSummary, rewards: HeatRewards): HTMLEl
         <div class="panel section">
           <h3>Pontuação</h3>
           <div style="font-size:46px;font-weight:800" class="warn">${sum.total}</div>
-          <table class="summary"><tr><th>#</th><th>Manobra</th><th>Resultado</th><th>Pontos</th></tr>${rows}</table>
+          <table class="summary"><tr><th>#</th><th>Aéreos</th><th>Resultado</th><th>Pontos</th></tr>${rows}</table>
         </div>
         <div class="panel section">
           <h3>Desempenho</h3>
-          <div class="profile-row"><span class="muted">Taxa de sucesso</span><b>${pct(sum.successRate)} (${sum.landed}/5)</b></div>
+          <div class="profile-row"><span class="muted">Taxa de sucesso</span><b>${pct(sum.successRate)} (${sum.landed}/${sum.landed + sum.falls})</b></div>
           <div class="profile-row"><span class="muted">Quedas</span><b>${sum.falls}</b></div>
           <div class="profile-row"><span class="muted">Melhor execução</span><b>${sum.bestExecution ? `${esc(sum.bestExecution.name)} · ${sum.bestExecution.quality}%` : '—'}</b></div>
           <div class="profile-row"><span class="muted">Maior combo</span><b>x${sum.bestCombo}</b></div>
           <div class="profile-row"><span class="muted">Maior onda</span><b>${sum.bestWave}</b></div>
-          <div class="profile-row"><span class="muted">Comandos Perfect</span><b>${sum.perfects}</b></div>
+          <div class="profile-row"><span class="muted">Pousos limpos</span><b>${sum.perfects}</b></div>
         </div>
         <div class="panel section">
           <h3>Progresso</h3>

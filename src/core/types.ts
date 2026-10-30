@@ -110,61 +110,58 @@ export interface Location {
 }
 
 export type Direction = 'nenhuma' | 'frontside' | 'backside';
-export type GrabId = 'indy' | 'mute' | 'melon' | 'stalefish';
+/** Grabs: a mão e a borda definem cada um. Japan é o Mute puxado (tweak). */
+export type GrabId = 'indy' | 'mute' | 'method' | 'stalefish' | 'tail' | 'japan';
+/** Extensões do corpo no ar. */
+export type ExtensionId = 'christ' | 'superman' | 'superwoman' | 'varial';
 export type Hand = 'tras' | 'frente';
-export type RotationAxis = 'giro' | 'flip';
-export type CommandKey = 'SPACE' | 'UP' | 'DOWN' | 'LEFT' | 'RIGHT' | 'Z' | 'X';
+/** Tipo de rotação: giro no eixo vertical, flip para trás, flip com giro (rodeo). */
+export type RotationAxis = 'nenhuma' | 'giro' | 'flip' | 'rodeo';
 export type ManeuverFamily = 'aereo' | 'rotacao' | 'grab' | 'combo' | 'experimental';
+export type AerialTier = 'basico' | 'rotacao' | 'avancado';
 
-export interface CommandStep {
-  phase: Phase;
-  key: CommandKey;
-  /** Segundos depois da decolagem. */
-  time: number;
-  /** Se falhar (Miss) num comando essencial, é queda, seja qual for a chance. */
-  essential: boolean;
-}
-
-/** Componentes que descrevem uma manobra. O motor gera o resto a partir deles. */
-export interface ManeuverComponents {
+/** Ficha técnica de um aéreo. O jogo reconhece o aéreo pelo que o jogador fez no ar. */
+export interface ManeuverDef {
+  id: string;
+  name: string;
+  tier: AerialTier;
   family: ManeuverFamily;
   direction: Direction;
+  /** Rotação nominal em graus (giro ou flip). */
   rotation: number;
   axis: RotationAxis;
   grab: GrabId | null;
-}
-
-export interface ManeuverDef extends ManeuverComponents {
-  id: string;
-  name: string;
+  extension: ExtensionId | null;
   difficulty: number;
   baseScore: number;
   unlockLevel: number;
+  /** Aéreos experimentais rendem descoberta na primeira vez. */
   experimental: boolean;
-  /** Referência de origem da variação experimental (skate, snowboard). */
-  origin?: string;
+  /** Velocidade recomendada na decolagem (m/s); abaixo dela a execução perde nota. */
+  minSpeed: number;
+  /** Ângulo de aproximação recomendado (graus de subida: 90 = vertical). */
+  approach: [number, number];
+  /** Altura acima do lip (m) e tempo de voo (s) de referência. */
+  height: number;
+  airTime: number;
+  /** Velocidade de rotação de referência (graus/s); 0 sem rotação. */
+  spinRate: number;
+  /** Exigência de controle, de 0 a 1. */
+  control: number;
+  /** Posição corporal, movimento da prancha e condição de pouso, em texto. */
+  body: string;
+  board: string;
+  landing: string;
+  /** Como fazer, em teclas. */
+  howTo: string;
   recommended: Partial<Attributes>;
-  /** Ids das manobras que são variações desta (mais rotação ou grab). */
-  variations: string[];
-  /** Restrições em texto, mostradas ao jogador. */
-  restrictions: string[];
-  /** Abaixo desta altura de onda a manobra recebe penalidade nas condições. */
-  minWaveHeight?: number;
 }
 
 export interface Maneuver extends ManeuverDef {
   /** Pesos dos atributos relevantes, somando 1. */
   weights: Partial<Attributes>;
-  /** Peso de cada fase na manobra, somando 1. Usado para equipamentos e condições. */
+  /** Peso de cada fase na manobra, somando 1. Usado para equipamentos. */
   phaseWeights: PhaseMods;
-  sequence: CommandStep[];
-}
-
-export type Judgement = 'perfect' | 'good' | 'late' | 'miss';
-
-export interface StepResult {
-  step: CommandStep;
-  judgement: Judgement;
 }
 
 export type Outcome = 'limpa' | 'concluida' | 'instavel' | 'queda';

@@ -3,6 +3,7 @@ import { BOARDS, FINS, formatDims } from '../data/equipment';
 import { LOCATIONS, WIND_HINTS, WIND_LABELS, findLocation } from '../data/locations';
 import { STEPS, clampSetup, sectionLabel, type HeatSetup } from '../core/conditions';
 import { FAMILY_LABELS, findManeuver } from '../core/maneuvers';
+import { CONTROL_LEGEND } from '../core/controls';
 import { conditionModifier, conditionParts } from '../core/performance';
 import { spendPoint, xpToNext } from '../core/progression';
 import { FAMILIES, QUALITIES, type CameraMode, type Quality } from '../core/save';
@@ -344,18 +345,17 @@ export function helpModal(parent: HTMLElement) {
     <div class="modal-bg">
       <div class="panel modal" style="width:min(640px, calc(100vw - 32px))">
         <h2>Como jogar</h2>
-        <div class="muted">Cada bateria tem 5 ondas. Antes de cada uma, a roleta sorteia a manobra. Cada onda começa com você deitado, remando: entre na onda, ganhe velocidade e decole no lip. No ar, os comandos vêm pela faixa de baixo: aperte a tecla quando ela passar pela linha amarela.</div>
+        <div class="muted">Cada bateria tem 5 ondas. A roleta sorteia um aéreo como desafio da onda (vale ×1,5), mas a onda é sua: desça, suba, faça cavadas e batidas para ganhar velocidade e voe quantas vezes a onda deixar. Só os aéreos pontuam; o resto é o caminho até eles.</div>
+        <h3 style="margin:10px 0 4px">Na água</h3>
         <div class="help-list">
-          <span class="kbd">D</span><span>Drop: levanta e entra na onda (um toque)</span>
-          <span class="kbd">W</span><span>Segure para ganhar velocidade (solte para parar de acelerar)</span>
-          <span class="kbd">Espaço</span><span>Decolagem, perto do lip e com velocidade</span>
-          <span class="kbd">← →</span><span>Direção e rotação: → frontside, ← backside</span>
-          <span class="kbd">↑</span><span>Jogar o corpo no flip (manobras experimentais)</span>
-          <span class="kbd">Z</span><span>Grab com a mão de trás (Indy, Stalefish)</span>
-          <span class="kbd">X</span><span>Grab com a mão da frente (Mute, Melon)</span>
-          <span class="kbd">↓</span><span>Aterrissagem</span>
+          <span class="kbd">D</span><span>Drop: levanta e entra na onda</span>
+          ${CONTROL_LEGEND.agua.map(([k, t]) => `<span class="kbd">${esc(k)}</span><span>${esc(t)}</span>`).join('')}
         </div>
-        <div class="muted">Perfect, Good e Late valem cada vez menos. Miss num comando com borda branca (essencial) é queda. A decolagem define a altura do aéreo; a rotação só gira com os comandos certos; o grab só acontece se você apertar.</div>
+        <h3 style="margin:10px 0 4px">No ar</h3>
+        <div class="help-list">
+          ${CONTROL_LEGEND.ar.map(([k, t]) => `<span class="kbd">${esc(k)}</span><span>${esc(t)}</span>`).join('')}
+        </div>
+        <div class="muted">Velocidade e ângulo de subida decidem a altura; carregar o giro na compressão e segurar as setas no começo do voo decide a rotação. Solte o grab e aperte ↓ antes de tocar a água, com a prancha alinhada e o peso sobre os pés. Depois do pouso, saia surfando para ganhar o bônus e emende outro aéreo.</div>
         <div class="actions"><button class="btn" data-action="ok">Entendi</button></div>
       </div>
     </div>`);

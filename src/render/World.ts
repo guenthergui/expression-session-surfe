@@ -135,7 +135,7 @@ export class World {
       windSpeed: loc.windAffects ? c.windSpeed : 0,
       windDir: WIND_DIR[c.windType],
       pool: !loc.windAffects,
-      peelSpeed: 4.6 + c.power / 25,
+      peelSpeed: 3.8 + c.power / 40,
     });
     this.applyWind();
     // Nova onda: rastro, corda e spray recomeçam.

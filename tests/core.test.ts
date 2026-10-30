@@ -1,20 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import { INITIAL_ATTRIBUTES } from '../src/data/attributes';
 import { CATALOG } from '../src/data/cosmetics';
-import { BOARDS, FINS, boardMeters, findBoard, findFin } from '../src/data/equipment';
+import { BOARDS, FINS, boardMeters, findBoard } from '../src/data/equipment';
 import { MANEUVER_DEFS } from '../src/data/maneuvers';
 import { clampSetup, defaultSetup } from '../src/core/conditions';
-import { HeatSession, WAVES_PER_HEAT } from '../src/core/heat';
-import { MANEUVERS, buildSequence, findManeuver, validateManeuver, validateVariations } from '../src/core/maneuvers';
-import { computeChance, resolveOutcome, P_MAX, P_MIN } from '../src/core/performance';
+import { FALL_FINISH, HeatSession, WAVES_PER_HEAT } from '../src/core/heat';
+import { MANEUVERS, findManeuver, recognize, validateManeuver } from '../src/core/maneuvers';
+import { conditionFactor, fatigueFactor } from '../src/core/performance';
 import { applyXp, refreshUnlocks, spendPoint, xpToNext } from '../src/core/progression';
 import { applyHeatResult } from '../src/core/rewards';
 import { seededRng } from '../src/core/rng';
 import { pickManeuver } from '../src/core/roulette';
 import { LEGACY_SAVE_KEY, SAVE_KEY, defaultSave, loadSave, sanitizeSave, writeSave, type KeyValueStore } from '../src/core/save';
-import { computeScore, comboMultiplier, nextCombo, LIMITS } from '../src/core/scoring';
-import { CommandTrack, LATE_WINDOW_MS, summarizeExecution } from '../src/core/timing';
-import type { Conditions, Judgement, StepResult } from '../src/core/types';
+import { LIMITS, comboMultiplier, nextCombo, scoreAerial, sequenceMultiplier, type AerialScoreInput } from '../src/core/scoring';
+import type { Conditions } from '../src/core/types';
+import { evaluateLanding } from '../src/sim/landing';
+import { ride } from './helpers';
 
 const calm: Conditions = { height: 1.5, power: 50, windType: 'lateral', windSpeed: 0, sectionQuality: 50 };
 const m = (id: string) => findManeuver(id)!;
@@ -28,115 +29,133 @@ function memoryStore(): KeyValueStore {
   };
 }
 
-function runHeat(seed: number, judge: (i: number) => Judgement = () => 'perfect') {
-  const save = defaultSave();
-  const heat = new HeatSession(defaultSetup(), INITIAL_ATTRIBUTES, save.unlockedManeuvers, [], seededRng(seed));
-  while (!heat.isOver) {
-    const man = heat.spin();
-    heat.resolve(man.sequence.map((step, i) => ({ step, judgement: judge(i) })));
-  }
-  return heat;
+/** Aéreos de verdade, feitos pelo piloto automático na física do jogo. */
+const flights = new Map<string, ReturnType<typeof ride>['lands'][number]>();
+function flight(id: string, mistake?: 'instavel' | 'queda') {
+  const key = `${id}:${mistake ?? ''}`;
+  if (!flights.has(key)) flights.set(key, ride(id, { animate: false, plan: mistake ? { mistake } : {} }).lands[0]);
+  return flights.get(key)!;
 }
 
-describe('catálogo de manobras', () => {
-  it('tem as manobras pedidas, válidas e com ids únicos', () => {
-    expect(MANEUVERS.length).toBeGreaterThanOrEqual(8);
-    expect(new Set(MANEUVERS.map((x) => x.id)).size).toBe(MANEUVERS.length);
+function scoreOf(id: string, mistake?: 'instavel' | 'queda', extra: Partial<AerialScoreInput> = {}) {
+  const f = flight(id, mistake);
+  return scoreAerial({
+    record: f.record, recognized: recognize(f.record, f.landing), landing: f.landing, estilo: 40,
+    timesLanded: 0, isNewDiscovery: false, indexInWave: 1, challenge: false, unlocked: true, ...extra,
+  });
+}
+
+const BASICOS = ['Straight Air', 'Frontside Air', 'Backside Air', 'Grab Air', 'Indy Air', 'Method Air', 'Stalefish Air'];
+const ROTACAO = ['180 Air', 'Air Reverse', '360 Air', 'Full Rotation', 'Frontside 360', 'Backside 360', 'Alley-oop'];
+const AVANCADOS = ['Backflip', 'Rodeo Flip', 'Superwoman', 'Superman', 'Christ Air', 'Tail Grab', 'Japan Air', 'Varial Air'];
+
+describe('repertório de aéreos', () => {
+  it('tem os 22 aéreos pedidos, válidos, com ids únicos e ficha completa', () => {
+    expect(MANEUVERS.length).toBe(22);
+    expect(new Set(MANEUVERS.map((x) => x.id)).size).toBe(22);
     for (const def of MANEUVER_DEFS) expect(validateManeuver(def), def.id).toEqual([]);
-    const names = MANEUVERS.map((x) => x.name);
-    for (const n of ['Straight Air', 'Air Reverse', 'Frontside Air', 'Backside Air', 'Frontside 360 Air', 'Backside 360 Air']) {
-      expect(names).toContain(n);
+    const byTier = (t: string) => MANEUVERS.filter((x) => x.tier === t).map((x) => x.name).sort();
+    expect(byTier('basico')).toEqual([...BASICOS].sort());
+    expect(byTier('rotacao')).toEqual([...ROTACAO].sort());
+    expect(byTier('avancado')).toEqual([...AVANCADOS].sort());
+    for (const x of MANEUVERS) {
+      expect(x.minSpeed, x.id).toBeGreaterThan(4);
+      expect(x.approach[1], x.id).toBeGreaterThan(x.approach[0]);
+      expect(x.height * x.airTime, x.id).toBeGreaterThan(0);
+      expect(x.body && x.board && x.landing && x.howTo, x.id).toBeTruthy();
     }
-    expect(MANEUVERS.some((x) => x.family === 'grab')).toBe(true);
-    expect(MANEUVERS.some((x) => x.family === 'combo')).toBe(true);
-    expect(MANEUVERS.filter((x) => x.experimental).every((x) => x.origin)).toBe(true);
   });
 
-  it('recusa combinações incompatíveis', () => {
+  it('cada aéreo tem identidade própria: dificuldade e exigências crescem com a complexidade', () => {
+    const d = (id: string) => m(id).difficulty;
+    expect(d('straight-air')).toBeLessThan(d('air-reverse'));
+    expect(d('air-reverse')).toBeLessThan(d('fs-360'));
+    expect(d('fs-360')).toBeLessThan(d('full-rotation'));
+    expect(d('fs-360')).toBeLessThan(d('backflip'));
+    expect(m('full-rotation').minSpeed).toBeGreaterThan(m('straight-air').minSpeed);
+    expect(m('full-rotation').airTime).toBeGreaterThan(m('straight-air').airTime);
+    // Mesmo giro e direção só se distinguem pela aproximação (180 Air × Alley-oop).
+    const signatures = MANEUVERS.map((x) => `${x.direction}|${x.rotation}|${x.axis}|${x.grab}|${x.extension}|${x.approach}`);
+    expect(new Set(signatures).size).toBe(22);
+  });
+
+  it('recusa fichas incoerentes', () => {
     const base = MANEUVER_DEFS[0];
-    expect(validateManeuver({ ...base, rotation: 90 })).not.toEqual([]);
-    expect(validateManeuver({ ...base, rotation: 180, family: 'rotacao' })).not.toEqual([]); // giro sem direção
-    expect(validateManeuver({ ...base, axis: 'flip', rotation: 360, direction: 'backside' })).not.toEqual([]); // flip não experimental
-    expect(validateManeuver({ ...base, family: 'grab', direction: 'nenhuma', grab: 'stalefish' })).not.toEqual([]); // grab fora de alcance
-    expect(validateVariations([{ ...base, variations: ['nao-existe'] }])).not.toEqual([]);
-    const fs = m('fs-air');
-    expect(validateVariations([{ ...fs, variations: ['bs-360'] }, m('bs-360')])).not.toEqual([]); // muda a direção
+    expect(validateManeuver({ ...base, rotation: 180, axis: 'nenhuma' })).not.toEqual([]);
+    expect(validateManeuver({ ...base, id: 'x', rotation: 180, axis: 'giro', direction: 'nenhuma' })).not.toEqual([]);
+    expect(validateManeuver({ ...base, approach: [70, 40] })).not.toEqual([]);
+    expect(validateManeuver({ ...base, howTo: '' })).not.toEqual([]);
   });
 
-  it('gera a sequência a partir dos componentes', () => {
-    const seq = buildSequence(m('fs-360-mute'));
-    expect(seq.map((s) => s.key)).toEqual(['SPACE', 'RIGHT', 'RIGHT', 'X', 'DOWN']);
-    expect(seq[0].essential && seq[seq.length - 1].essential).toBe(true);
-    expect(seq.find((s) => s.phase === 'grab')!.essential).toBe(false);
-    expect(buildSequence(m('stalefish-air')).map((s) => s.key)).toEqual(['SPACE', 'LEFT', 'Z', 'DOWN']);
+  it('o nome sai do que foi feito no ar, incluindo combinações', () => {
+    const f = ride('air-reverse', { animate: false, plan: { grab: 'indy' } }).lands[0];
+    expect(recognize(f.record, f.landing).name).toBe('Air Reverse Indy');
   });
 });
 
-describe('comandos e janelas de tempo', () => {
-  const steps = buildSequence(m('air-reverse'));
-
-  it('classifica Perfect, Good, Late e Miss', () => {
-    const track = new CommandTrack(steps, 1000, 70);
-    expect(track.press('SPACE', 1030)!.judgement).toBe('perfect');
-    expect(track.press('RIGHT', 1000 + 420 + 110)!.judgement).toBe('good');
-    expect(track.press('DOWN', 1000 + 950 - 200)!.judgement).toBe('late'); // cedo, mas dentro da janela
-    expect(track.done).toBe(true);
-
-    const t2 = new CommandTrack(steps, 1000, 70);
-    expect(t2.press('SPACE', 0)).toBeNull(); // cedo demais, ignorado
-    expect(t2.press('LEFT', 1000)!.judgement).toBe('miss'); // tecla errada
-    expect(t2.update(1000 + 420 + LATE_WINDOW_MS + 1)).toEqual([1]);
+describe('pontuação por qualidade', () => {
+  it('um aéreo difícil bem pousado vale mais que um simples', () => {
+    expect(scoreOf('fs-360').total).toBeGreaterThan(scoreOf('straight-air').total);
+    expect(scoreOf('air-reverse').total).toBeGreaterThan(scoreOf('fs-air').total);
   });
 
-  it('Miss em comando essencial reprova a execução', () => {
-    const all = (j: Judgement): StepResult[] => steps.map((step) => ({ step, judgement: j }));
-    expect(summarizeExecution(all('perfect'))).toMatchObject({ quality: 1, essentialFailed: false });
-    expect(summarizeExecution(all('late')).essentialFailed).toBe(false);
-    expect(summarizeExecution(all('miss')).essentialFailed).toBe(true);
+  it('pouso desequilibrado não ganha a nota máxima e queda vale zero', () => {
+    const clean = scoreOf('indy-air');
+    const shaky = scoreOf('indy-air', 'instavel');
+    expect(flight('indy-air', 'instavel').landing.outcome).toBe('instavel');
+    expect(shaky.total).toBeLessThan(clean.total * 0.8);
+    expect(scoreOf('air-reverse', 'queda').total).toBe(0);
+  });
+
+  it('repetir rende menos, sem zerar; o desafio e a sequência na onda rendem mais', () => {
+    const first = scoreOf('air-reverse').total;
+    const again = scoreOf('air-reverse', undefined, { timesLanded: 3 }).total;
+    expect(again).toBeLessThan(first);
+    expect(again).toBeGreaterThan(0);
+    expect(scoreOf('air-reverse', undefined, { challenge: true }).total).toBeGreaterThan(first);
+    expect(scoreOf('air-reverse', undefined, { indexInWave: 2 }).total).toBeGreaterThan(first);
+    expect(scoreOf('air-reverse', undefined, { unlocked: false }).total).toBeLessThan(first);
+  });
+
+  it('respeita os limites dos multiplicadores', () => {
+    expect(sequenceMultiplier(1)).toBe(1);
+    expect(sequenceMultiplier(20)).toBe(LIMITS.sequence[1]);
+    expect(comboMultiplier(0)).toBe(1);
+    expect(comboMultiplier(99)).toBeLessThanOrEqual(LIMITS.combo[1]);
+    for (const id of ['straight-air', 'fs-360', 'backflip']) {
+      const s = scoreOf(id);
+      expect(s.execution).toBeGreaterThanOrEqual(LIMITS.execution[0]);
+      expect(s.execution).toBeLessThanOrEqual(LIMITS.execution[1]);
+    }
+  });
+
+  it('o combo entre ondas sobe com pousos e zera na queda', () => {
+    expect(nextCombo(2, 'queda', 0)).toBe(0);
+    expect(nextCombo(0, 'limpa', 0.9)).toBeGreaterThan(nextCombo(0, 'instavel', 0.9));
+  });
+
+  it('a altura e a velocidade da decolagem entram na execução', () => {
+    const f = flight('straight-air');
+    const low = { ...f.record, apex: f.record.apex * 0.5, airTime: f.record.airTime * 0.7, launch: { ...f.record.launch, speed: f.record.launch.speed * 0.7 } };
+    const rec = recognize(f.record, f.landing);
+    const base = { recognized: rec, landing: evaluateLanding(f.record, { equilibrio: 60, equipLanding: 1 }), estilo: 40, timesLanded: 0, isNewDiscovery: false, indexInWave: 1, challenge: false, unlocked: true };
+    expect(scoreAerial({ ...base, record: low }).total).toBeLessThan(scoreAerial({ ...base, record: f.record }).total);
   });
 });
 
-describe('avaliação das manobras', () => {
-  const base = { attributes: INITIAL_ATTRIBUTES, board: findBoard('standard'), fin: findFin('thruster'), conditions: calm, locationId: 'pico-leste', waveIndex: 0 };
-
-  it('fica sempre entre os limites', () => {
-    const maxed = Object.fromEntries(Object.keys(INITIAL_ATTRIBUTES).map((k) => [k, 100])) as typeof INITIAL_ATTRIBUTES;
-    expect(computeChance({ ...base, attributes: maxed, maneuver: m('straight-air'), executionQuality: 1 }).P).toBe(P_MAX);
-    expect(computeChance({ ...base, maneuver: m('fs-540-melon'), executionQuality: 0 }).P).toBe(P_MIN);
-  });
-
-  it('manobras fáceis são acessíveis e as avançadas exigem habilidade', () => {
-    const p = (id: string, q: number) => computeChance({ ...base, maneuver: m(id), executionQuality: q }).P;
-    expect(p('straight-air', 0.8)).toBeGreaterThan(65);
-    expect(p('air-reverse', 0.8)).toBeLessThan(p('straight-air', 0.8));
-    expect(p('fs-360', 1)).toBeLessThan(p('air-reverse', 1));
-    expect(p('rodeo-flip', 0.5)).toBeLessThan(15);
-  });
-
-  it('a execução é o fator principal', () => {
-    const run = (q: number) => computeChance({ ...base, maneuver: m('air-reverse'), executionQuality: q });
-    const swing = run(1).P - run(0.2).P;
-    const maxed = { ...INITIAL_ATTRIBUTES, impulsao: 60, amplitude: 55, forca: 60, equilibrio: 60, rotacao: 55, controleAereo: 60 };
-    const attrSwing = computeChance({ ...base, attributes: maxed, maneuver: m('air-reverse'), executionQuality: 0.6 }).P -
-      computeChance({ ...base, maneuver: m('air-reverse'), executionQuality: 0.6 }).P;
-    expect(swing).toBeGreaterThan(attrSwing);
-    expect(swing).toBeGreaterThanOrEqual(40);
-  });
-
-  it('condições ruins reduzem a chance e a leitura de onda atenua', () => {
+describe('condições, cansaço e equipamento', () => {
+  it('condições ruins atrapalham a projeção e a leitura de onda atenua', () => {
     const bad: Conditions = { height: 0.75, power: 35, windType: 'terral', windSpeed: 25, sectionQuality: 15 };
-    const ok = computeChance({ ...base, maneuver: m('fs-360') }).C;
-    const poor = computeChance({ ...base, maneuver: m('fs-360'), conditions: bad }).C;
-    const reader = computeChance({ ...base, maneuver: m('fs-360'), conditions: bad, attributes: { ...INITIAL_ATTRIBUTES, leituraOnda: 100 } }).C;
+    const ok = conditionFactor(calm, m('fs-360'), 'pico-leste', 30);
+    const poor = conditionFactor(bad, m('fs-360'), 'pico-leste', 30);
+    const reader = conditionFactor(bad, m('fs-360'), 'pico-leste', 100);
     expect(poor).toBeLessThan(ok);
     expect(reader).toBeGreaterThan(poor);
+    expect(poor).toBeGreaterThanOrEqual(0.88);
   });
 
-  it('domínio técnico ajuda, com limite', () => {
-    const a = computeChance({ ...base, maneuver: m('air-reverse'), mastery: 0 });
-    const b = computeChance({ ...base, maneuver: m('air-reverse'), mastery: 500 });
-    expect(b.masteryBonus).toBe(10);
-    expect(b.P).toBeGreaterThan(a.P);
+  it('o cansaço cresce ao longo da bateria', () => {
+    expect(fatigueFactor(INITIAL_ATTRIBUTES, 4)).toBeGreaterThanOrEqual(fatigueFactor(INITIAL_ATTRIBUTES, 0));
   });
 
   it('nenhuma prancha ou quilha é melhor em todas as fases', () => {
@@ -156,46 +175,6 @@ describe('avaliação das manobras', () => {
     expect(std.length).toBeCloseTo(1.778, 3);
     expect(std.width).toBeCloseTo(0.4699, 3);
     expect(std.thickness).toBeCloseTo(0.05715, 4);
-  });
-
-  it('pouso depende da rolagem e de comandos essenciais', () => {
-    expect(resolveOutcome(97, 0, true, 1)).toBe('queda');
-    expect(resolveOutcome(80, 75, false, 1)).toBe('instavel');
-    expect(resolveOutcome(80, 10, false, 1)).toBe('limpa');
-    expect(resolveOutcome(80, 10, false, 0.5)).toBe('concluida');
-    expect(resolveOutcome(50, 60, false, 1)).toBe('queda');
-  });
-});
-
-describe('pontuação e combos', () => {
-  const input = {
-    maneuver: m('air-reverse'), outcome: 'concluida' as const, executionQuality: 0.8, grabMissed: false,
-    estilo: 20, timesLandedThisHeat: 0, isNewDiscovery: false, comboAfter: 1,
-  };
-
-  it('queda vale zero e zera o combo; pouso limpo excepcional soma 2', () => {
-    expect(computeScore({ ...input, outcome: 'queda' }).total).toBe(0);
-    expect(nextCombo(4, 'queda', 1)).toBe(0);
-    expect(nextCombo(2, 'limpa', 0.95)).toBe(4);
-    expect(nextCombo(2, 'instavel', 0.5)).toBe(2);
-  });
-
-  it('repetir rende menos, sem zerar', () => {
-    const first = computeScore(input).total;
-    const third = computeScore({ ...input, timesLandedThisHeat: 2 }).total;
-    expect(third).toBeLessThan(first);
-    expect(third).toBeGreaterThan(first * 0.5);
-  });
-
-  it('pouso limpo vale mais que instável', () => {
-    expect(computeScore({ ...input, outcome: 'limpa' }).total).toBeGreaterThan(computeScore({ ...input, outcome: 'instavel' }).total);
-  });
-
-  it('respeita os limites dos multiplicadores', () => {
-    expect(comboMultiplier(100)).toBe(LIMITS.combo[1]);
-    const s = computeScore({ ...input, maneuver: m('fs-540-melon'), outcome: 'limpa', executionQuality: 1, estilo: 100, isNewDiscovery: true, comboAfter: 50 });
-    expect(s.execution).toBeLessThanOrEqual(LIMITS.execution[1]);
-    expect(s.total).toBeLessThanOrEqual(2200 * 1.4 * 1.25 * 2 * 1.5 * 2.5);
   });
 });
 
@@ -223,7 +202,7 @@ describe('atributos, nível e desbloqueios', () => {
     expect(save.level).toBe(3);
     expect(r.pointsGained).toBe(8);
     expect(save.unlockedLocations).toContain('lagoa-azul');
-    expect(save.unlockedManeuvers).toContain('fs-360-mute');
+    expect(save.unlockedManeuvers).toContain('backflip');
     expect(save.unlockedCosmetics).toContain('cabelo-rosa');
     expect(r.unlocks.length).toBeGreaterThan(0);
     expect(refreshUnlocks(save)).toEqual([]); // nada liberado em dobro
@@ -242,35 +221,74 @@ describe('atributos, nível e desbloqueios', () => {
 });
 
 describe('bateria de cinco ondas', () => {
+  /** Uma bateria em que cada onda tem os aéreos dados (ids, com erro opcional). */
+  function runHeat(seed: number, plan: (wave: number) => [string, ('instavel' | 'queda')?][], end: 'fim' | 'queda' = 'fim') {
+    const save = defaultSave();
+    const heat = new HeatSession(defaultSetup(), INITIAL_ATTRIBUTES, save.unlockedManeuvers, [], seededRng(seed));
+    while (!heat.isOver) {
+      heat.spin();
+      for (const [id, mistake] of plan(heat.waveIndex)) {
+        const f = flight(id, mistake);
+        heat.registerAerial(f.record, f.landing);
+        if (f.landing.outcome !== 'queda') heat.rideAway();
+      }
+      heat.resolveWave(end);
+    }
+    return heat;
+  }
+
   it('tem exatamente cinco ondas e soma o resultado', () => {
-    const heat = runHeat(1);
+    const heat = runHeat(1, () => [['straight-air']]);
     expect(heat.results.length).toBe(WAVES_PER_HEAT);
-    expect(() => heat.resolve([])).toThrow();
+    expect(() => heat.resolveWave('fim')).toThrow();
     const sum = heat.summary();
-    expect(sum.total).toBe(heat.results.reduce((a, r) => a + r.score.total, 0));
+    expect(sum.total).toBe(heat.results.reduce((a, r) => a + r.total, 0));
     expect(sum.waveScores.length).toBe(5);
-    expect(sum.landed + sum.falls).toBe(5);
-    expect(sum.successRate).toBeCloseTo(sum.landed / 5);
+    expect(sum.landed).toBe(5);
+    expect(sum.perfects).toBe(5);
+  });
+
+  it('emendar aéreos na mesma onda soma mais, e sair surfando dá bônus', () => {
+    const one = runHeat(2, () => [['air-reverse']]).results[0];
+    const two = runHeat(2, () => [['air-reverse'], ['fs-air']]).results[0];
+    expect(two.aerials.length).toBe(2);
+    expect(two.total).toBeGreaterThan(one.total);
+    expect(two.aerials[1].score.sequence).toBeGreaterThan(1);
+    expect(one.aerials[0].rodeAway).toBe(true);
+    expect(one.aerials[0].points).toBeGreaterThan(one.aerials[0].score.total);
+  });
+
+  it('terminar a onda caindo custa parte dos pontos', () => {
+    const fim = runHeat(4, () => [['air-reverse']]).results[0];
+    const queda = runHeat(4, () => [['air-reverse']], 'queda').results[0];
+    expect(queda.total).toBe(Math.round(queda.subtotal * queda.combo * FALL_FINISH));
+    expect(queda.total).toBeLessThan(fim.total);
+  });
+
+  it('o desafio sorteado vale mais quando é cumprido', () => {
+    const save = defaultSave();
+    const heat = new HeatSession(defaultSetup(), INITIAL_ATTRIBUTES, save.unlockedManeuvers, [], seededRng(9));
+    const challenge = heat.spin();
+    const f = flight(challenge.id);
+    const a = heat.registerAerial(f.record, f.landing);
+    expect(a.challenge).toBe(true);
+    expect(a.score.challenge).toBe(1.5);
   });
 
   it('o jogador progride mesmo caindo em tudo', () => {
-    const heat = runHeat(3, () => 'miss');
+    const heat = runHeat(3, () => [['air-reverse', 'queda']], 'queda');
     const sum = heat.summary();
-    expect(sum.falls).toBe(5);
+    expect(sum.falls).toBeGreaterThanOrEqual(5);
+    expect(sum.total).toBe(0);
     const save = defaultSave();
     const rewards = applyHeatResult(save, sum);
     expect(sum.xp).toBeGreaterThan(0);
     expect(rewards.pointsGained).toBeGreaterThanOrEqual(1);
-    expect(save.mastery[heat.results[0].maneuver.family]).toBeGreaterThan(0);
   });
 
-  it('boa execução pontua mais que execução fraca, em média', () => {
-    let good = 0;
-    let weak = 0;
-    for (let s = 0; s < 30; s++) {
-      good += runHeat(100 + s, () => 'perfect').total;
-      weak += runHeat(100 + s, (i) => (i === 0 ? 'late' : 'good')).total;
-    }
+  it('boa execução pontua mais que execução fraca', () => {
+    const good = runHeat(10, () => [['indy-air']]).total;
+    const weak = runHeat(10, () => [['indy-air', 'instavel']]).total;
     expect(good).toBeGreaterThan(weak);
   });
 });

@@ -718,111 +718,116 @@ select {
   flex-wrap: wrap;
 }
 
-/* Trilha de comandos */
-.lane {
+/* Painel da onda */
+.ride-hud [hidden] {
+  display: none !important;
+}
+
+.ride-hud {
   position: absolute;
-  left: 0;
-  right: 0;
-  margin: 0 auto;
-  bottom: 18px;
-  width: min(900px, calc(100vw - 32px));
-  height: 94px;
+  inset: 0;
   pointer-events: none;
 }
 
-.lane-track {
+.ride-meters {
   position: absolute;
-  inset: 24px 0 0 0;
-  border-radius: var(--radius);
-  overflow: hidden;
-}
-
-.lane-hit {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 4px;
-  background: var(--warn);
-  box-shadow: 0 0 12px var(--warn);
-}
-
-.lane-perfect {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  background: rgba(255, 209, 102, 0.16);
-}
-
-.lane-note {
-  position: absolute;
-  top: 9px;
-  width: 52px;
-  height: 52px;
-  margin-left: -26px;
-  border-radius: var(--radius);
+  left: 16px;
+  bottom: 16px;
   display: grid;
-  place-content: center;
-  font-weight: 800;
-  font-size: 18px;
-  color: #0c1a24;
-  transition: opacity 0.15s;
-}
-
-.lane-note.wide {
-  width: 84px;
-  margin-left: -42px;
-  font-size: 15px;
-}
-
-.lane-note.done {
-  opacity: 0.25;
-}
-
-.lane-note.missed {
-  background: var(--bad) !important;
-}
-
-.lane-note.preview {
-  opacity: 0.55;
-}
-
-.lane-info {
-  position: absolute;
-  top: 0;
-  left: 6px;
-  right: 6px;
-  display: flex;
-  justify-content: space-between;
+  gap: 6px;
+  padding: var(--sp-2) var(--sp-3);
+  width: min(300px, calc(100vw - 32px));
   font-size: var(--fs-small);
-  font-weight: 600;
-  color: var(--ink);
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
 }
 
-.next-prompt {
+.meter {
+  display: grid;
+  grid-template-columns: 92px 1fr 70px;
+  align-items: center;
+  gap: 8px;
+}
+
+.meter .bar {
+  height: 8px;
+}
+
+.bar.crit span {
+  background: var(--bad);
+}
+
+.bar.comp span {
+  background: var(--aqua);
+}
+
+.ride-msg {
   position: absolute;
   left: 0;
   right: 0;
   margin: 0 auto;
   width: fit-content;
-  bottom: 132px;
-  display: flex;
-  align-items: center;
-  gap: var(--sp-3);
+  max-width: calc(100vw - 32px);
+  bottom: 16px;
   padding: var(--sp-2) var(--sp-4);
+  font-weight: 650;
   font-size: var(--fs-body);
-  font-weight: 600;
-  border-radius: var(--radius);
 }
 
-.next-prompt .key {
-  height: 38px;
-  min-width: 48px;
-  font-size: 17px;
+.air-readout {
+  position: absolute;
+  left: 0;
+  right: 0;
+  margin: 0 auto;
+  width: fit-content;
+  top: 22%;
+  padding: var(--sp-2) var(--sp-4);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 20px;
+  text-align: center;
 }
 
-.countdown {
-  width: 110px;
+.ride-legend {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  width: min(340px, calc(100vw - 32px));
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-small);
+  display: grid;
+  gap: 6px;
+}
+
+.ride-legend .help-list {
+  gap: 3px 10px;
+}
+
+@media (max-width: 900px) {
+  .ride-legend {
+    display: none;
+  }
+  .ride-msg {
+    bottom: 150px;
+  }
+}
+
+.howto {
+  padding: 10px 0;
+  font-size: var(--fs-body);
+}
+
+.aerial-list {
+  display: grid;
+  gap: 8px;
+  max-height: 40vh;
+  overflow: auto;
+}
+
+.aerial-row {
+  display: grid;
+  gap: 2px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: var(--fs-small);
 }
 
 .popup {

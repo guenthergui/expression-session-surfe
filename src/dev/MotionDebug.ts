@@ -149,7 +149,7 @@ export class MotionDebug {
     const fmt = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(0)}`;
     const ok = (mm: number) => (Math.abs(mm) <= 8 ? 'ok' : 'FORA');
     return `
-      <b>${ride.maneuver.name}</b> (${d.choreo}) · ${d.state}<br>
+      <b>${ride.challenge.name}</b> (${d.choreo}) · ${d.state}<br>
       fase: ${f.phase}${d.zone ? ` · zona: ${ZONE_LABEL[d.zone]}` : ''}<br>
       giro (°): ombros ${fmt(d.shoulders)} · quadril ${fmt(d.hips)} · prancha ${fmt(d.board)} · borda ${fmt(d.roll)}<br>
       velocidade ${d.velocity.length().toFixed(1)} m/s · aceleração ${d.accel.length().toFixed(1)} m/s²<br>
