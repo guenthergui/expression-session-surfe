@@ -3,6 +3,7 @@ import type { App } from '../game/App';
 import type { Judgement, Outcome } from '../core/types';
 import { QUALITIES, type Quality } from '../core/save';
 import { QUALITY } from '../render/Stage';
+import { MotionDebug } from './MotionDebug';
 
 // Cenas de validação visual. Só aparecem abrindo o jogo com "?lab" no endereço
 // durante o desenvolvimento (npm run dev), para nunca surgirem por acidente
@@ -16,35 +17,50 @@ interface Scene {
   label: string;
   maneuver: string;
   outcome: Outcome;
-  at: { event: 'inicio' | 'drop' | 'emPe' | 'decolagem' | 'pouso'; plus: number };
+  at: { event: 'inicio' | 'tempo' | 'drop' | 'emPe' | 'decolagem' | 'pouso'; plus: number };
   camera: CamPreset;
   results?: (i: number, phase: string) => Judgement;
 }
 
 const missRotation = (_: number, phase: string): Judgement => (phase === 'rotacao' ? 'miss' : 'perfect');
+const lateRotation = (_: number, phase: string): Judgement => (phase === 'rotacao' ? 'late' : 'perfect');
 
 export const SCENES: Scene[] = [
-  { id: 'remada', label: '1. Remada deitado na prancha', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'inicio', plus: 0.6 }, camera: 'corpo' },
-  { id: 'levantando', label: '1b. Drop: levantando', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'drop', plus: 0.35 }, camera: 'corpo' },
-  { id: 'parado', label: '1c. Em pé, de perto (costas para a câmera)', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'emPe', plus: 0.3 }, camera: 'corpo' },
-  { id: 'rosto', label: '2. Rosto e cabelo', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'emPe', plus: 0.3 }, camera: 'rosto' },
-  { id: 'maos', label: '2b. Mãos e dedos (abertas)', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'emPe', plus: 0.3 }, camera: 'maos' },
-  { id: 'pes', label: '2c. Pés no deck (direito à frente)', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'emPe', plus: 0.3 }, camera: 'pes' },
-  { id: 'prancha', label: '3. Prancha, quilhas, parafina e leash', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'emPe', plus: 0.3 }, camera: 'prancha' },
-  { id: 'face', label: '4. Acelerando na face da onda', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'emPe', plus: 1.0 }, camera: 'jogo' },
-  { id: 'compressao', label: '5. Compressão perto do lip', maneuver: 'air-reverse', outcome: 'limpa', at: { event: 'decolagem', plus: -0.02 }, camera: 'corpo' },
-  { id: 'decolagem', label: '6. Decolagem', maneuver: 'air-reverse', outcome: 'limpa', at: { event: 'decolagem', plus: 0.08 }, camera: 'corpo' },
-  { id: 'ascensao', label: '7. Ascensão', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'decolagem', plus: 0.3 }, camera: 'jogo' },
-  { id: 'r180', label: '8. Rotação de 180°', maneuver: 'air-reverse', outcome: 'limpa', at: { event: 'decolagem', plus: 0.5 }, camera: 'corpo' },
-  { id: 'r360', label: '9. Rotação de 360°', maneuver: 'fs-360', outcome: 'limpa', at: { event: 'decolagem', plus: 0.62 }, camera: 'corpo' },
-  { id: 'grab', label: '10. Grab (Indy)', maneuver: 'indy-air', outcome: 'limpa', at: { event: 'decolagem', plus: 0.65 }, camera: 'corpo' },
-  { id: 'descida', label: '11. Descida e preparação do pouso', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'pouso', plus: -0.15 }, camera: 'jogo' },
-  { id: 'limpa', label: '12. Pouso limpo', maneuver: 'air-reverse', outcome: 'limpa', at: { event: 'pouso', plus: 0.12 }, camera: 'corpo' },
-  { id: 'instavel', label: '13. Pouso instável', maneuver: 'air-reverse', outcome: 'instavel', at: { event: 'pouso', plus: 0.5 }, camera: 'corpo' },
-  { id: 'queda', label: '14. Queda (corpo e prancha separados)', maneuver: 'air-reverse', outcome: 'queda', results: missRotation, at: { event: 'pouso', plus: 0.55 }, camera: 'jogo' },
-  { id: 'agua', label: '15. Prancha na água', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'emPe', plus: 0.6 }, camera: 'agua' },
-  { id: 'spray', label: '16. Espuma e spray de perto', maneuver: 'air-reverse', outcome: 'limpa', at: { event: 'decolagem', plus: 0.18 }, camera: 'agua' },
-  { id: 'onda', label: '17. Onda inteira', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'decolagem', plus: 0.3 }, camera: 'onda' },
+  // Base, contato e navegação
+  { id: 'remada', label: '0. Remada deitado na prancha', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'inicio', plus: 0.6 }, camera: 'corpo' },
+  { id: 'levantando', label: '0b. Drop: levantando', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'drop', plus: 0.35 }, camera: 'corpo' },
+  { id: 'pes', label: '1. Pés no deck (direito à frente, de trás nas quilhas)', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'emPe', plus: 0.3 }, camera: 'pes' },
+  { id: 'parado', label: '2. Navegação normal (costas para a câmera)', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'emPe', plus: 0.3 }, camera: 'corpo' },
+  { id: 'compressao', label: '3. Compressão chegando ao Lip', maneuver: 'air-reverse', outcome: 'limpa', at: { event: 'decolagem', plus: -0.02 }, camera: 'corpo' },
+  { id: 'drop', label: '4. Drop: descendo a face', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'drop', plus: 0.7 }, camera: 'jogo' },
+  { id: 'subida', label: '5. Subida da face', maneuver: 'fs-air', outcome: 'limpa', at: { event: 'decolagem', plus: -0.45 }, camera: 'corpo' },
+  { id: 'bottom', label: '6. Bottom turn (borda dos dedos)', maneuver: 'fs-air', outcome: 'limpa', at: { event: 'decolagem', plus: -0.95 }, camera: 'corpo' },
+  { id: 'aproximacao', label: '7. Aproximação do Lip', maneuver: 'fs-air', outcome: 'limpa', at: { event: 'decolagem', plus: -0.25 }, camera: 'jogo' },
+  { id: 'decolagem', label: '8. Decolagem (extensão)', maneuver: 'air-reverse', outcome: 'limpa', at: { event: 'decolagem', plus: 0.08 }, camera: 'corpo' },
+  // Aéreos
+  { id: 'straight', label: '9. Straight Air', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'decolagem', plus: 0.4 }, camera: 'corpo' },
+  { id: 'fsair', label: '10. Frontside Air', maneuver: 'fs-air', outcome: 'limpa', at: { event: 'decolagem', plus: 0.45 }, camera: 'corpo' },
+  { id: 'bsair', label: '11. Backside Air', maneuver: 'bs-air', outcome: 'limpa', at: { event: 'decolagem', plus: 0.45 }, camera: 'corpo' },
+  { id: 'r180', label: '12. Air Reverse (meio do giro)', maneuver: 'air-reverse', outcome: 'limpa', at: { event: 'decolagem', plus: 0.5 }, camera: 'corpo' },
+  { id: 'bsr180', label: '12b. Backside Air Reverse', maneuver: 'bs-air-reverse', outcome: 'limpa', at: { event: 'decolagem', plus: 0.5 }, camera: 'corpo' },
+  { id: 'r360', label: '13. Frontside 360', maneuver: 'fs-360', outcome: 'limpa', at: { event: 'decolagem', plus: 0.62 }, camera: 'corpo' },
+  { id: 'bs360', label: '14. Backside 360', maneuver: 'bs-360', outcome: 'limpa', at: { event: 'decolagem', plus: 0.62 }, camera: 'corpo' },
+  { id: 'grab', label: '15. Grab: Indy', maneuver: 'indy-air', outcome: 'limpa', at: { event: 'decolagem', plus: 0.6 }, camera: 'corpo' },
+  { id: 'stalefish', label: '15b. Grab: Stalefish', maneuver: 'stalefish-air', outcome: 'limpa', at: { event: 'decolagem', plus: 0.6 }, camera: 'corpo' },
+  { id: 'combo', label: '16. Combinação: Air Reverse Indy', maneuver: 'air-reverse-indy', outcome: 'limpa', at: { event: 'decolagem', plus: 1.08 }, camera: 'corpo' },
+  { id: 'combo360', label: '16b. Combinação: Frontside 360 Mute', maneuver: 'fs-360-mute', outcome: 'limpa', at: { event: 'decolagem', plus: 1.1 }, camera: 'corpo' },
+  // Descida e pouso
+  { id: 'descida', label: '17. Descida e preparação do pouso', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'pouso', plus: -0.15 }, camera: 'jogo' },
+  { id: 'limpa', label: '18. Pouso limpo (absorção)', maneuver: 'air-reverse', outcome: 'limpa', at: { event: 'pouso', plus: 0.1 }, camera: 'corpo' },
+  { id: 'instavel', label: '19. Pouso instável', maneuver: 'air-reverse', outcome: 'instavel', results: lateRotation, at: { event: 'pouso', plus: 0.3 }, camera: 'corpo' },
+  { id: 'queda', label: '20. Queda (corpo e prancha separados)', maneuver: 'air-reverse', outcome: 'queda', results: missRotation, at: { event: 'pouso', plus: 0.55 }, camera: 'jogo' },
+  // Visual
+  { id: 'rosto', label: 'Rosto e cabelo', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'emPe', plus: 0.3 }, camera: 'rosto' },
+  { id: 'maos', label: 'Mãos e dedos', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'emPe', plus: 0.3 }, camera: 'maos' },
+  { id: 'prancha', label: 'Prancha, quilhas, parafina e leash', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'emPe', plus: 0.3 }, camera: 'prancha' },
+  { id: 'agua', label: 'Prancha na água', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'emPe', plus: 0.6 }, camera: 'agua' },
+  { id: 'spray', label: 'Espuma e spray de perto', maneuver: 'air-reverse', outcome: 'limpa', at: { event: 'decolagem', plus: 0.18 }, camera: 'agua' },
+  { id: 'onda', label: 'Onda inteira', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'decolagem', plus: 0.3 }, camera: 'onda' },
 ];
 
 const tmp = new THREE.Vector3();
@@ -85,7 +101,8 @@ export function mountLab(app: App) {
   panel.innerHTML = `
     <div class="header"><b>Cenas de validação</b><button class="btn small secondary" data-lab="close">Fechar</button></div>
     <div class="lab-list">${SCENES.map((s) => `<button class="btn small secondary" data-scene="${s.id}">${s.label}</button>`).join('')}</div>
-    <div class="sub muted">18. Comparar qualidade gráfica:</div>
+    <label class="sub"><input type="checkbox" data-lab="debug" checked> Depuração do movimento (pés, centro de massa, vetores, Lip)</label>
+    <div class="sub muted">Comparar qualidade gráfica:</div>
     <div class="options">${QUALITIES.map((q) => `<button class="btn small secondary" data-q="${q}">${QUALITY[q].label}</button>`).join('')}</div>
     <div class="options">
       <button class="btn small secondary" data-lab="play">Continuar a animação</button>
@@ -95,12 +112,21 @@ export function mountLab(app: App) {
   document.body.appendChild(panel);
   const info = panel.querySelector<HTMLElement>('[data-lab=info]')!;
   let current: Scene | null = null;
+  const debug = new MotionDebug(app);
+  // Atualiza as referências a cada quadro, também com a cena congelada.
+  const tick = () => {
+    debug.update();
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
 
   const run = (s: Scene) => {
     current = s;
+    debug.reset();
     app.labScene({ maneuver: s.maneuver, outcome: s.outcome, at: s.at, results: s.results });
     app.world.camRig.override = cameraFor(app, s.camera);
     app.frame(0);
+    debug.update();
     info.textContent = `${s.label} · ${app.world.currentQuality} · ${Math.round(app.fps)} FPS`;
   };
 
@@ -116,5 +142,9 @@ export function mountLab(app: App) {
     if (t.dataset.lab === 'menu') app.go('menu');
     if (t.dataset.lab === 'close') panel.remove();
   });
-  return { panel, run, scenes: SCENES };
+  panel.addEventListener('change', (e) => {
+    const el = e.target as HTMLInputElement;
+    if (el.dataset.lab === 'debug') debug.setEnabled(el.checked);
+  });
+  return { panel, run, scenes: SCENES, debug };
 }

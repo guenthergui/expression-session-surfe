@@ -1,4 +1,4 @@
-import { faceWidth, surfaceHeight, type WaveState } from './waveField';
+import { crestOffset, faceWidth, surfaceHeight, type WaveState } from './waveField';
 
 // Voo e saída do surfista, em metros e segundos. A aproximação (remada, drop
 // e surf até o lip) fica em waveRun.ts; aqui começa no instante da decolagem.
@@ -54,9 +54,12 @@ export function planAerial(i: PlanInput): AerialPlan {
   // Velocidade relativa: 0 lenta, 1 no máximo.
   const speedFactor = Math.min(1, Math.max(0, (i.speed - 5) / (top - 5)));
   const launch: Vec3 = { ...i.launch };
-  const zL = 0.7 + (1 - i.takeoff) * 1.2 + (1 - i.amplitude / 100) * 0.4 + (1 - speedFactor) * 0.5;
+  // O pouso é medido a partir da crista (a área de aterrissagem fica logo abaixo do lip).
+  const sL = 0.7 + (1 - i.takeoff) * 1.2 + (1 - i.amplitude / 100) * 0.4 + (1 - speedFactor) * 0.5;
   const xL = launch.x + (i.speed * 0.95 + i.takeoff * 0.6) * i.airTime;
-  const landing: Vec3 = { x: xL, y: surfaceHeight(waveAt(w, i.launchTime + i.airTime), xL, zL) + 0.04, z: zL };
+  const wL = waveAt(w, i.launchTime + i.airTime);
+  const zL = crestOffset(wL, xL) + sL;
+  const landing: Vec3 = { x: xL, y: surfaceHeight(wL, xL, zL) + 0.04, z: zL };
   const T = i.airTime;
   const velocity: Vec3 = {
     x: (landing.x - launch.x) / T,
@@ -86,10 +89,14 @@ export function airVelocity(plan: AerialPlan, t: number): Vec3 {
   return { x: plan.velocity.x, y: plan.velocity.y - GRAVITY * t, z: plan.velocity.z };
 }
 
-/** Posição na saída (t desde o pouso), descendo a face. */
-export function rideOutPosition(plan: AerialPlan, w: WaveState, t: number, waveTime: number): Vec3 {
+/**
+ * Posição na saída (t desde o pouso), descendo a face. keep é a fração da
+ * velocidade que sobra depois do impacto: um pouso instável perde mais.
+ */
+export function rideOutPosition(plan: AerialPlan, w: WaveState, t: number, waveTime: number, keep = 0.85): Vec3 {
   const u = Math.min(1, t / RIDE_OUT_TIME);
-  const x = plan.landing.x + Math.max(5, plan.speed * 0.85) * t;
-  const z = plan.landing.z + (faceWidth(w) * 0.9 - plan.landing.z) * smooth(u);
+  const x = plan.landing.x + Math.max(4.5, plan.speed * keep) * t;
+  const sLand = plan.landing.z - crestOffset(waveAt(w, plan.launchTime + plan.airTime), plan.landing.x);
+  const z = crestOffset(waveAt(w, waveTime), x) + sLand + (faceWidth(w) * 0.9 - sLand) * smooth(u);
   return { x, y: surfaceHeight(waveAt(w, waveTime), x, z) + 0.04, z };
 }

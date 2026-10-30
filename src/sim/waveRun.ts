@@ -1,6 +1,6 @@
 import { clamp } from '../core/rng';
 import type { Judgement } from '../core/types';
-import { breakX, faceWidth, surfaceHeight, type WaveState } from './waveField';
+import { breakX, crestOffset, faceWidth, surfaceHeight, type WaveState } from './waveField';
 
 // Máquina de estados da aproximação, do início da onda até a decolagem:
 //
@@ -18,6 +18,12 @@ import { breakX, faceWidth, surfaceHeight, type WaveState } from './waveField';
 // ponto ideal para decolar. W acelera até um limite; solto, a velocidade volta
 // aos poucos para a de cruzeiro. A quebra da onda avança atrás do surfista: quem
 // fica lento demais é alcançado.
+//
+// A linha é medida a partir da crista (s, em metros), e não numa posição fixa
+// do cenário: a crista ondula ao longo da onda, e o surfista acompanha a face
+// real. Subindo a face ele perde velocidade (troca energia cinética por altura)
+// e descendo ganha, como na água. A simulação usa passo fixo de 1/120 s, então
+// o resultado não depende da taxa de quadros.
 
 export type RunState = 'paddling' | 'dropping' | 'riding' | 'airborne' | 'fallen';
 
@@ -59,11 +65,18 @@ export class WaveRun {
   /** Momento do D e da decolagem. */
   dropAt: number | null = null;
   takeoffAt: number | null = null;
+  /** Distância até a crista (m): 0 no lip, cresce descendo a face. */
+  s: number;
   /** Fase da linha de subida e descida da face (pico do lip em π). */
   private phase = 0;
-  private readonly zPaddle: number;
-  private readonly zTrough: number;
-  readonly zLip = 0.3;
+  private readonly sPaddle: number;
+  readonly sTrough: number;
+  readonly sLip = 0.3;
+  /** Altura média da linha, referência da troca de energia. */
+  private hRef = 0;
+  /** Fator de velocidade pela altura na face (1 na altura média). */
+  energy = 1;
+  private acc = 0;
   readonly vCruise: number;
   readonly vMax: number;
   readonly vMinTakeoff: number;
@@ -71,9 +84,10 @@ export class WaveRun {
 
   constructor(readonly wave: WaveState, readonly params: RunParams) {
     const F = faceWidth(wave);
-    this.zPaddle = F * 0.45;
-    this.zTrough = F * 0.92;
-    this.z = this.zPaddle;
+    this.sPaddle = F * 0.45;
+    this.sTrough = F * 0.92;
+    this.s = this.sPaddle;
+    this.z = crestOffset(wave, 0) + this.s;
     this.vCruise = 5.0 + wave.power * 0.012;
     this.vMax = 8.2 + params.forca * 0.012 + params.equipImpulse * 0.08 + wave.power * 0.008;
     this.vMinTakeoff = Math.min(this.vMax - 0.8, 6.3);
@@ -99,7 +113,7 @@ export class WaveRun {
 
   /** Segundos até o pico da subida mais próximo (negativo = já passou). */
   timeToPeak(): number {
-    const w = this.omega();
+    const w = this.omega() * this.energy;
     const p = ((this.phase % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
     // p < π: o pico desta subida ainda vem; p > π: já passou.
     return (Math.PI - p) / w;
@@ -179,15 +193,63 @@ export class WaveRun {
     return { x: this.x, y: surfaceHeight({ ...this.wave, time: this.t }, this.x, this.z) + 0.04, z: this.z };
   }
 
-  /** Aceleração lateral na face (m/s²): negativa subindo para o lip, positiva descendo. Usada para inclinar a prancha. */
+  /** Velocidade de deslocamento ao longo da onda (m/s), com a troca de energia na face. */
+  get groundSpeed(): number {
+    return this.speed * this.energy;
+  }
+
+  /** Velocidade na água (m/s) em x e z: a prancha aponta para onde ela vai. */
+  velocity(): { x: number; z: number } {
+    const vx = this.state === 'paddling' ? this.speed : this.groundSpeed;
+    let ds = 0;
+    if (this.state === 'dropping') {
+      const u = clamp((this.t - this.dropAt!) / DROP_TIME, 0, 1);
+      ds = ((this.sTrough - this.sPaddle) * 6 * u * (1 - u)) / DROP_TIME;
+    } else if (this.state === 'riding') {
+      ds = (this.sLip - this.sTrough) * 0.5 * Math.sin(this.phase) * this.omega() * this.energy;
+    }
+    // A crista ondula ao longo da onda: a linha acompanha.
+    const e = 0.05;
+    const w = { ...this.wave, time: this.t };
+    const dCrest = (crestOffset(w, this.x + e) - crestOffset(w, this.x - e)) / (2 * e);
+    return { x: vx, z: ds + dCrest * vx };
+  }
+
+  /**
+   * Aceleração lateral (m/s²) da curva na face: negativa curvando para a parede
+   * (bottom turn, borda dos dedos), positiva voltando a descer. Inclina a prancha
+   * pelo ângulo de equilíbrio atan(a/g).
+   */
   lateralAccel(): number {
     if (this.state !== 'riding') return 0;
-    const w = this.omega();
-    return 0.5 * (this.zLip - this.zTrough) * w * w * Math.cos(this.phase);
+    const w = this.omega() * this.energy;
+    const az = 0.5 * (this.sLip - this.sTrough) * w * w * Math.cos(this.phase);
+    const v = this.velocity();
+    return (az * v.x) / Math.max(0.5, Math.hypot(v.x, v.z));
+  }
+
+  /** Trecho da linha: base (bottom turn), subida, topo (perto do lip) ou descida. */
+  lineSegment(): 'base' | 'subida' | 'topo' | 'descida' | null {
+    if (this.state !== 'riding') return null;
+    const p = ((this.phase % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+    if (p < Math.PI * 0.3 || p > Math.PI * 1.75) return 'base';
+    if (p < Math.PI * 0.8) return 'subida';
+    if (p < Math.PI * 1.2) return 'topo';
+    return 'descida';
   }
 
   update(dt: number) {
     if (dt <= 0) return;
+    // Passo fixo: o mesmo resultado a 30 ou a 144 quadros por segundo.
+    this.acc += dt;
+    const h = 1 / 120;
+    while (this.acc >= h - 1e-9) {
+      this.acc -= h;
+      this.step(h);
+    }
+  }
+
+  private step(dt: number) {
     this.t += dt;
     switch (this.state) {
       case 'paddling':
@@ -200,12 +262,16 @@ export class WaveRun {
         // Desce a face: a gravidade dá velocidade até a de cruzeiro.
         const u = clamp((this.t - this.dropAt!) / DROP_TIME, 0, 1);
         const e = u * u * (3 - 2 * u);
-        this.z = this.zPaddle + (this.zTrough - this.zPaddle) * e;
+        this.s = this.sPaddle + (this.sTrough - this.sPaddle) * e;
         this.speed = PADDLE_SPEED + (this.vCruise - PADDLE_SPEED) * Math.sin((u * Math.PI) / 2);
         this.x += this.speed * dt;
         if (u >= 1) {
           this.state = 'riding';
           this.phase = 0;
+          // Altura média da linha (entre a base e o lip), para a troca de energia.
+          const w = { ...this.wave, time: this.t };
+          const sMid = (this.sLip + this.sTrough) / 2;
+          this.hRef = surfaceHeight(w, this.x, crestOffset(w, this.x) + sMid);
         }
         break;
       }
@@ -217,9 +283,13 @@ export class WaveRun {
           this.speed -= (this.speed - this.vCruise) * 0.35 * dt;
         }
         this.speed = clamp(this.speed, PADDLE_SPEED, this.vMax);
-        this.phase += this.omega() * dt;
-        this.z = this.zTrough + (this.zLip - this.zTrough) * (0.5 - 0.5 * Math.cos(this.phase));
-        this.x += this.speed * dt;
+        // Energia: v² = v₀² + 2·g·η·(h_ref − h). Mais lento no alto, mais rápido na base.
+        const w = { ...this.wave, time: this.t };
+        const hNow = surfaceHeight(w, this.x, this.z);
+        this.energy = Math.sqrt(clamp(1 + (2 * 9.81 * 0.55 * (this.hRef - hNow)) / (this.speed * this.speed), 0.55, 1.6));
+        this.phase += this.omega() * this.energy * dt;
+        this.s = this.sTrough + (this.sLip - this.sTrough) * (0.5 - 0.5 * Math.cos(this.phase));
+        this.x += this.groundSpeed * dt;
         // Lento demais, a quebra alcança o surfista.
         if (this.breakGap < 0.8) this.state = 'fallen';
         break;
@@ -227,5 +297,6 @@ export class WaveRun {
       default:
         break;
     }
+    this.z = crestOffset({ ...this.wave, time: this.t }, this.x) + this.s;
   }
 }

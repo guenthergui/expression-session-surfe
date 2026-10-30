@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GARMENTS, REGION_PLACE, activeGarments, colorOf, findItem, type BodyRole, type Look, type TattooRegion } from '../data/cosmetics';
+import { BODY } from '../anim/stance';
 import { drawPattern, drawTattoo } from './paint';
 import { hairTexture, skinTexture } from './textures';
 
@@ -36,9 +37,11 @@ export interface WorldPose {
   /** Mão aberta (0) a fechada (1). */
   gripLeft: number;
   gripRight: number;
-  /** Direção para onde os joelhos apontam (mundo). */
-  kneePole: THREE.Vector3;
-  elbowPole: THREE.Vector3;
+  /** Direção para onde cada joelho e cada cotovelo apontam (mundo). */
+  kneePoleLeft: THREE.Vector3;
+  kneePoleRight: THREE.Vector3;
+  elbowPoleLeft: THREE.Vector3;
+  elbowPoleRight: THREE.Vector3;
 }
 
 export interface SurferAvatar {
@@ -51,19 +54,8 @@ export interface SurferAvatar {
   ankleBack(): THREE.Vector3;
 }
 
-// Medidas do corpo em metros
-export const BODY = {
-  thigh: 0.45,
-  shin: 0.44,
-  upperArm: 0.3,
-  forearm: 0.27,
-  ankleHeight: 0.075,
-  hipHalfWidth: 0.09,
-  shoulderHalfWidth: 0.19,
-  spine: 0.12,
-  chest: 0.27,
-  neck: 0.22,
-};
+// Medidas do corpo em metros: ficam em anim/stance.ts, junto das âncoras dos pés.
+export { BODY };
 
 /** Distância mínima entre raiz e ponta: limita a flexão de joelhos (~145°) e cotovelos (~150°). */
 const MIN_REACH = { leg: 0.24, arm: 0.15 };
@@ -692,7 +684,7 @@ export class SurferRig implements SurferAvatar {
   private buildLeg(side: 1 | -1): Limb {
     const info = (len: number, rTop: number, rBottom: number, bulge: number, at: number) => ({ side: side === 1 ? 'left' as const : 'right' as const, torso: false, outerU: side === 1 ? 0.25 : 0.75, ...limbInfo(len, rTop, rBottom, bulge, at) });
     const root = new THREE.Object3D();
-    root.position.set(side * BODY.hipHalfWidth, -0.06, 0);
+    root.position.set(side * BODY.hipHalfWidth, -BODY.hipDrop, 0);
     this.pelvis.add(root);
     this.cap(root, 0.088, 'thigh');
     this.seg(limbGeometry(BODY.thigh, 0.088, 0.056, 0.016, 0.3), 'thigh', root, info(BODY.thigh, 0.088, 0.056, 0.016, 0.3));
@@ -1055,10 +1047,10 @@ export class SurferRig implements SurferAvatar {
     this.root.updateMatrixWorld(true);
 
     // legF/armF são o lado esquerdo do corpo (+x do rig); legB/armB, o direito.
-    this.solveLimb(this.legF, p.footLeft.pos, p.kneePole, p.footLeft.quat, BODY.ankleHeight);
-    this.solveLimb(this.legB, p.footRight.pos, p.kneePole, p.footRight.quat, BODY.ankleHeight);
-    this.solveLimb(this.armF, p.handLeft, p.elbowPole, null, 0);
-    this.solveLimb(this.armB, p.handRight, p.elbowPole, null, 0);
+    this.solveLimb(this.legF, p.footLeft.pos, p.kneePoleLeft, p.footLeft.quat, BODY.ankleHeight);
+    this.solveLimb(this.legB, p.footRight.pos, p.kneePoleRight, p.footRight.quat, BODY.ankleHeight);
+    this.solveLimb(this.armF, p.handLeft, p.elbowPoleLeft, null, 0);
+    this.solveLimb(this.armB, p.handRight, p.elbowPoleRight, null, 0);
     this.applyGrip(this.fingersF, p.gripLeft);
     this.applyGrip(this.fingersB, p.gripRight);
   }
@@ -1133,6 +1125,11 @@ export class SurferRig implements SurferAvatar {
   /** Posição do pulso no mundo, para testes e cenas de validação. */
   wristWorld(side: 'left' | 'right'): THREE.Vector3 {
     return (side === 'left' ? this.armF : this.armB).end.getWorldPosition(new THREE.Vector3());
+  }
+
+  /** Orientação do pé no mundo (sola no plano xz local). */
+  footQuat(side: 'left' | 'right'): THREE.Quaternion {
+    return (side === 'left' ? this.legF : this.legB).end.getWorldQuaternion(new THREE.Quaternion());
   }
 
   ankleWorld(side: 'left' | 'right'): THREE.Vector3 {

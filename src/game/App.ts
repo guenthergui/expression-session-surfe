@@ -883,9 +883,9 @@ export class App implements MenuHost {
     results?: (i: number, phase: string) => Judgement;
     outcome: Outcome;
     /** Evento de referência e segundos depois dele. */
-    at: { event: 'inicio' | 'drop' | 'emPe' | 'decolagem' | 'pouso'; plus: number };
+    at: { event: 'inicio' | 'tempo' | 'drop' | 'emPe' | 'decolagem' | 'pouso'; plus: number };
     location?: string;
-  }) {
+  }): void {
     const m = MANEUVERS.find((x) => x.id === cfg.maneuver) ?? MANEUVERS[0];
     this.mode = 'menu';
     this.heat = null;
@@ -907,7 +907,8 @@ export class App implements MenuHost {
     const eventTime = (): number | null => {
       const run = ride.run;
       switch (cfg.at.event) {
-        case 'inicio': return 0;
+        case 'inicio':
+        case 'tempo': return 0;
         case 'drop': return run.dropAt;
         case 'emPe': return run.dropAt === null ? null : run.dropAt + DROP_TIME;
         case 'decolagem': return run.takeoffAt;
@@ -917,9 +918,20 @@ export class App implements MenuHost {
     let guard = 0;
     while (eventTime() === null && guard++ < 1200) this.frame(1 / 60);
     const target = (eventTime() ?? ride.time) + cfg.at.plus;
+    // Instante antes do evento (por exemplo, o bottom turn antes da decolagem):
+    // a onda é determinística, então basta remontar a cena e avançar até ele.
+    if (target < ride.time - 1e-6) {
+      this.labScene({ ...cfg, at: { event: 'tempo', plus: target } });
+      return;
+    }
     while (ride.time < target - 1e-6 && guard++ < 2400) this.frame(Math.min(1 / 60, target - ride.time));
     this.labFreeze = target;
     this.frame(0);
+  }
+
+  /** Só para depuração: a onda em andamento. */
+  get debugRide() {
+    return this.ride;
   }
 
   /** Só para testes e depuração: estado resumido do jogo. */

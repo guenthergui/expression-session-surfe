@@ -1,12 +1,14 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { POSES, airKeys, landingKeys, sampleSequence } from '../src/anim/poses';
+import { allChoreos, choreoFor } from '../src/anim/choreography';
+import { POSES, landingKeys, sampleSequence } from '../src/anim/poses';
 import { findManeuver } from '../src/core/maneuvers';
 import { defaultSave, sanitizeSave } from '../src/core/save';
 import { AerialAnimator, type BoardShapeInfo } from '../src/game/AerialAnimator';
 import { planAerial } from '../src/sim/aerial';
 import { Rope } from '../src/sim/rope';
 import { WaveRun } from '../src/sim/waveRun';
+import { deckAnchors } from '../src/anim/stance';
 import { createWave } from '../src/sim/waveField';
 
 // Prancha simplificada com as mesmas funções que o animador usa do modelo 3D.
@@ -56,7 +58,11 @@ function run(sim: ReturnType<typeof makeAnimator>, outcome: 'limpa' | 'instavel'
 
 describe('biblioteca de poses', () => {
   it('as sequências são contínuas (sem saltos de pose)', () => {
-    const seqs = [airKeys('rotacao', 1.27, 0.42, 0.74), airKeys('grab', 0.95, 0.5, 0.5), airKeys('aereo', 0.95, 0.3, 0.3), landingKeys('limpa'), landingKeys('instavel')];
+    const seqs = [
+      ...allChoreos().flatMap((c) => [c.keys(1.27, 0.42, 0.74, null, 0), c.keys(1.27, 0.42, 0.74, 'indy', 1.06), c.keys(0.95, 0.5, 0.5, 'stalefish', 0.5)]),
+      landingKeys('limpa'),
+      landingKeys('instavel'),
+    ];
     for (const keys of seqs) {
       let prev = sampleSequence(keys, 0);
       for (let t = 0.01; t < 2.5; t += 0.01) {
@@ -67,13 +73,24 @@ describe('biblioteca de poses', () => {
     }
   });
 
-  it('famílias diferentes usam movimentos diferentes', () => {
-    const rot = sampleSequence(airKeys('rotacao', 1.27, 0.42, 0.74), 0.6);
-    const grab = sampleSequence(airKeys('grab', 0.95, 0.5, 0.5), 0.55);
-    const basic = sampleSequence(airKeys('aereo', 0.95, 0.3, 0.3), 0.45);
-    expect(grab.tuck).toBeGreaterThan(basic.tuck);
-    expect(rot.spread).toBeLessThan(basic.spread);
-    expect(grab.grip).toBeGreaterThan(rot.grip);
+  it('cada família de aéreo tem a sua própria coreografia', () => {
+    const fs = findManeuver('fs-air')!;
+    const bs = findManeuver('bs-air')!;
+    const ids = ['straight-air', 'fs-air', 'bs-air', 'air-reverse', 'bs-air-reverse', 'fs-360', 'bs-360', 'rodeo-flip'].map((id) => choreoFor(findManeuver(id)!).id);
+    expect(new Set(ids).size).toBe(ids.length);
+    // Frontside e backside não são a mesma animação com o sinal trocado.
+    const a = sampleSequence(choreoFor(fs).keys(0.95, 0.3, 0.3, null, 0), 0.45);
+    const b = sampleSequence(choreoFor(bs).keys(0.95, 0.3, 0.3, null, 0), 0.45);
+    expect(Math.sign(a.twist)).not.toBe(Math.sign(b.twist));
+    expect(Math.sign(a.side)).not.toBe(Math.sign(b.side));
+    expect(a.faUp).toBeGreaterThan(b.faUp); // frontside: braço da frente por cima da face
+    expect(b.baUp).toBeGreaterThan(a.baUp); // backside: braço de trás por cima do lip
+    expect(Math.abs(a.faFwd + b.faFwd) + Math.abs(a.baFwd + b.baFwd) + Math.abs(a.legSplit - b.legSplit)).toBeGreaterThan(0.2);
+    // No 360 o corpo encolhe no meio do giro; no straight ele fica aberto.
+    const r = sampleSequence(choreoFor(findManeuver('fs-360')!).keys(1.27, 0.42, 0.74, null, 0), 0.6);
+    const st = sampleSequence(choreoFor(findManeuver('straight-air')!).keys(0.95, 0.3, 0.3, null, 0), 0.45);
+    expect(r.tuck).toBeGreaterThan(st.tuck);
+    expect(Math.hypot(r.faOut, r.baOut)).toBeLessThan(Math.hypot(st.faOut, st.baOut));
   });
 
   it('todas as poses ficam dentro das faixas válidas', () => {
@@ -145,10 +162,10 @@ describe('animação do aéreo', () => {
     const sim = makeAnimator('fs-360');
     run(sim, 'limpa', (_, f) => {
       if (f.phase === 'remada' || f.phase === 'drop') return;
-      // O pé deve estar no plano do deck da prancha, a no máximo 1 cm.
+      // O pé deve estar no plano do deck da prancha, a no máximo 1 cm, na âncora do pé da frente.
       const local = toBoard(f, f.pose.footRight.pos);
       expect(Math.abs(local.y - board.deckY(0, 0))).toBeLessThan(0.01);
-      expect(Math.abs(local.x - 0.24)).toBeLessThan(0.01);
+      expect(Math.abs(local.x - deckAnchors(board.shape.length).frontX)).toBeLessThan(0.01);
     });
   });
 

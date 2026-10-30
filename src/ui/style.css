@@ -949,6 +949,17 @@ table.summary th {
   justify-content: flex-start;
 }
 
+.motion-debug {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  max-width: min(560px, calc(100vw - 24px));
+  padding: 8px 10px;
+  z-index: 40;
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  pointer-events: none;
+}
+
 /* ---------- Vestiário ---------- */
 
 .locker {
