@@ -36,6 +36,7 @@ export const SCENES: Scene[] = [
   { id: 'subida', label: '5. Subida da face', maneuver: 'fs-air', outcome: 'limpa', at: { event: 'decolagem', plus: -0.45 }, camera: 'corpo' },
   { id: 'bottom', label: '6. Bottom turn (borda dos dedos)', maneuver: 'fs-air', outcome: 'limpa', at: { event: 'decolagem', plus: -0.95 }, camera: 'corpo' },
   { id: 'aproximacao', label: '7. Aproximação do Lip', maneuver: 'fs-air', outcome: 'limpa', at: { event: 'decolagem', plus: -0.25 }, camera: 'jogo' },
+  { id: 'rabeta', label: '7b. Pop: prancha na rabeta, bico subindo', maneuver: 'air-reverse', outcome: 'limpa', at: { event: 'decolagem', plus: 0.05 }, camera: 'corpo' },
   { id: 'decolagem', label: '8. Decolagem (extensão)', maneuver: 'air-reverse', outcome: 'limpa', at: { event: 'decolagem', plus: 0.08 }, camera: 'corpo' },
   // Aéreos
   { id: 'straight', label: '9. Straight Air', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'decolagem', plus: 0.4 }, camera: 'corpo' },
