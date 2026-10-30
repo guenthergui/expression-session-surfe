@@ -174,7 +174,11 @@ export function sanitizeSave(raw: unknown): SaveData {
     unlockedBoards: ids(r.unlockedBoards, BOARDS.map((b) => b.id), d.unlockedBoards),
     unlockedFins: ids(r.unlockedFins, FINS.map((f) => f.id), d.unlockedFins),
     unlockedLocations,
-    unlockedManeuvers: ids(r.unlockedManeuvers, MANEUVERS.map((m) => m.id), d.unlockedManeuvers),
+    // O repertório mudou entre versões: o que o nível já libera entra sempre.
+    unlockedManeuvers: [...new Set([
+      ...ids(r.unlockedManeuvers, MANEUVERS.map((m) => m.id), d.unlockedManeuvers),
+      ...MANEUVERS.filter((m) => m.unlockLevel <= int(r.level, 1, 1, 99)).map((m) => m.id),
+    ])],
     unlockedCosmetics,
     look: d.look,
     discoveries: ids(r.discoveries, MANEUVERS.filter((m) => m.experimental).map((m) => m.id), []),

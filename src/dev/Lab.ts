@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { App } from '../game/App';
-import type { Judgement, Outcome } from '../core/types';
+import type { PilotPlan } from '../sim/autopilot';
 import { QUALITIES, type Quality } from '../core/save';
 import { QUALITY } from '../render/Stage';
 import { MotionDebug } from './MotionDebug';
@@ -9,6 +9,7 @@ import { MotionDebug } from './MotionDebug';
 // durante o desenvolvimento (npm run dev), para nunca surgirem por acidente
 // para o jogador. Cada cena monta uma onda com resultados forçados, avança até
 // um instante e congela, com a câmera apontada para o que deve ser inspecionado.
+// O piloto automático usa as mesmas teclas do jogador para fazer cada aéreo.
 
 type CamPreset = 'jogo' | 'corpo' | 'rosto' | 'maos' | 'pes' | 'prancha' | 'agua' | 'onda';
 
@@ -16,52 +17,59 @@ interface Scene {
   id: string;
   label: string;
   maneuver: string;
-  outcome: Outcome;
   at: { event: 'inicio' | 'tempo' | 'drop' | 'emPe' | 'decolagem' | 'pouso'; plus: number };
   camera: CamPreset;
-  results?: (i: number, phase: string) => Judgement;
+  mistake?: PilotPlan['mistake'];
 }
-
-const missRotation = (_: number, phase: string): Judgement => (phase === 'rotacao' ? 'miss' : 'perfect');
-const lateRotation = (_: number, phase: string): Judgement => (phase === 'rotacao' ? 'late' : 'perfect');
 
 export const SCENES: Scene[] = [
   // Base, contato e navegação
-  { id: 'remada', label: '0. Remada deitado na prancha', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'inicio', plus: 0.6 }, camera: 'corpo' },
-  { id: 'levantando', label: '0b. Drop: levantando', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'drop', plus: 0.35 }, camera: 'corpo' },
-  { id: 'pes', label: '1. Pés no deck (direito à frente, de trás nas quilhas)', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'emPe', plus: 0.3 }, camera: 'pes' },
-  { id: 'parado', label: '2. Navegação normal (costas para a câmera)', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'emPe', plus: 0.3 }, camera: 'corpo' },
-  { id: 'compressao', label: '3. Compressão chegando ao Lip', maneuver: 'air-reverse', outcome: 'limpa', at: { event: 'decolagem', plus: -0.02 }, camera: 'corpo' },
-  { id: 'drop', label: '4. Drop: descendo a face', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'drop', plus: 0.7 }, camera: 'jogo' },
-  { id: 'subida', label: '5. Subida da face', maneuver: 'fs-air', outcome: 'limpa', at: { event: 'decolagem', plus: -0.45 }, camera: 'corpo' },
-  { id: 'bottom', label: '6. Bottom turn (borda dos dedos)', maneuver: 'fs-air', outcome: 'limpa', at: { event: 'decolagem', plus: -0.95 }, camera: 'corpo' },
-  { id: 'aproximacao', label: '7. Aproximação do Lip', maneuver: 'fs-air', outcome: 'limpa', at: { event: 'decolagem', plus: -0.25 }, camera: 'jogo' },
-  { id: 'rabeta', label: '7b. Pop: prancha na rabeta, bico subindo', maneuver: 'air-reverse', outcome: 'limpa', at: { event: 'decolagem', plus: 0.05 }, camera: 'corpo' },
-  { id: 'decolagem', label: '8. Decolagem (extensão)', maneuver: 'air-reverse', outcome: 'limpa', at: { event: 'decolagem', plus: 0.08 }, camera: 'corpo' },
+  { id: 'remada', label: '0. Remada deitado na prancha', maneuver: 'straight-air', at: { event: 'inicio', plus: 0.6 }, camera: 'corpo' },
+  { id: 'levantando', label: '0b. Drop: levantando', maneuver: 'straight-air', at: { event: 'drop', plus: 0.35 }, camera: 'corpo' },
+  { id: 'pes', label: '1. Pés no deck (direito à frente, de trás nas quilhas)', maneuver: 'straight-air', at: { event: 'emPe', plus: 0.3 }, camera: 'pes' },
+  { id: 'parado', label: '2. Navegação normal (costas para a câmera)', maneuver: 'straight-air', at: { event: 'emPe', plus: 0.3 }, camera: 'corpo' },
+  { id: 'compressao', label: '3. Compressão chegando ao Lip', maneuver: 'air-reverse', at: { event: 'decolagem', plus: -0.02 }, camera: 'corpo' },
+  { id: 'drop', label: '4. Drop: descendo a face', maneuver: 'straight-air', at: { event: 'drop', plus: 0.7 }, camera: 'jogo' },
+  { id: 'subida', label: '5. Subida da face', maneuver: 'fs-air', at: { event: 'decolagem', plus: -0.3 }, camera: 'corpo' },
+  { id: 'bottom', label: '6. Bottom turn (borda dos dedos)', maneuver: 'fs-air', at: { event: 'decolagem', plus: -0.55 }, camera: 'corpo' },
+  { id: 'aproximacao', label: '7. Aproximação do Lip', maneuver: 'fs-air', at: { event: 'decolagem', plus: -0.15 }, camera: 'jogo' },
+  { id: 'rabeta', label: '7b. Pop: prancha na rabeta, bico subindo', maneuver: 'air-reverse', at: { event: 'decolagem', plus: 0.05 }, camera: 'corpo' },
+  { id: 'decolagem', label: '8. Decolagem (extensão)', maneuver: 'air-reverse', at: { event: 'decolagem', plus: 0.08 }, camera: 'corpo' },
   // Aéreos
-  { id: 'straight', label: '9. Straight Air', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'decolagem', plus: 0.4 }, camera: 'corpo' },
-  { id: 'fsair', label: '10. Frontside Air', maneuver: 'fs-air', outcome: 'limpa', at: { event: 'decolagem', plus: 0.45 }, camera: 'corpo' },
-  { id: 'bsair', label: '11. Backside Air', maneuver: 'bs-air', outcome: 'limpa', at: { event: 'decolagem', plus: 0.45 }, camera: 'corpo' },
-  { id: 'r180', label: '12. Air Reverse (meio do giro)', maneuver: 'air-reverse', outcome: 'limpa', at: { event: 'decolagem', plus: 0.5 }, camera: 'corpo' },
-  { id: 'bsr180', label: '12b. Backside Air Reverse', maneuver: 'bs-air-reverse', outcome: 'limpa', at: { event: 'decolagem', plus: 0.5 }, camera: 'corpo' },
-  { id: 'r360', label: '13. Frontside 360', maneuver: 'fs-360', outcome: 'limpa', at: { event: 'decolagem', plus: 0.62 }, camera: 'corpo' },
-  { id: 'bs360', label: '14. Backside 360', maneuver: 'bs-360', outcome: 'limpa', at: { event: 'decolagem', plus: 0.62 }, camera: 'corpo' },
-  { id: 'grab', label: '15. Grab: Indy', maneuver: 'indy-air', outcome: 'limpa', at: { event: 'decolagem', plus: 0.6 }, camera: 'corpo' },
-  { id: 'stalefish', label: '15b. Grab: Stalefish', maneuver: 'stalefish-air', outcome: 'limpa', at: { event: 'decolagem', plus: 0.6 }, camera: 'corpo' },
-  { id: 'combo', label: '16. Combinação: Air Reverse Indy', maneuver: 'air-reverse-indy', outcome: 'limpa', at: { event: 'decolagem', plus: 1.08 }, camera: 'corpo' },
-  { id: 'combo360', label: '16b. Combinação: Frontside 360 Mute', maneuver: 'fs-360-mute', outcome: 'limpa', at: { event: 'decolagem', plus: 1.1 }, camera: 'corpo' },
+  { id: 'straight', label: '9. Straight Air', maneuver: 'straight-air', at: { event: 'decolagem', plus: 0.4 }, camera: 'corpo' },
+  { id: 'fsair', label: '10. Frontside Air', maneuver: 'fs-air', at: { event: 'decolagem', plus: 0.45 }, camera: 'corpo' },
+  { id: 'bsair', label: '11. Backside Air', maneuver: 'bs-air', at: { event: 'decolagem', plus: 0.45 }, camera: 'corpo' },
+  { id: 'grabair', label: '11b. Grab Air', maneuver: 'grab-air', at: { event: 'decolagem', plus: 0.32 }, camera: 'corpo' },
+  { id: 'indy', label: '12. Indy Air', maneuver: 'indy-air', at: { event: 'decolagem', plus: 0.45 }, camera: 'corpo' },
+  { id: 'method', label: '12b. Method Air', maneuver: 'method-air', at: { event: 'decolagem', plus: 0.45 }, camera: 'corpo' },
+  { id: 'stalefish', label: '12c. Stalefish', maneuver: 'stalefish-air', at: { event: 'decolagem', plus: 0.45 }, camera: 'corpo' },
+  { id: 'tail', label: '12d. Tail Grab', maneuver: 'tail-grab', at: { event: 'decolagem', plus: 0.45 }, camera: 'corpo' },
+  { id: 'japan', label: '12e. Japan Air', maneuver: 'japan-air', at: { event: 'decolagem', plus: 0.55 }, camera: 'corpo' },
+  { id: 'r180', label: '13. 180 Air (meio do giro)', maneuver: '180-air', at: { event: 'decolagem', plus: 0.35 }, camera: 'corpo' },
+  { id: 'reverse', label: '13b. Air Reverse', maneuver: 'air-reverse', at: { event: 'decolagem', plus: 0.45 }, camera: 'corpo' },
+  { id: 'r360', label: '14. 360 Air', maneuver: '360-air', at: { event: 'decolagem', plus: 0.45 }, camera: 'corpo' },
+  { id: 'fs360', label: '14b. Frontside 360', maneuver: 'fs-360', at: { event: 'decolagem', plus: 0.45 }, camera: 'corpo' },
+  { id: 'bs360', label: '14c. Backside 360', maneuver: 'bs-360', at: { event: 'decolagem', plus: 0.45 }, camera: 'corpo' },
+  { id: 'alley', label: '14d. Alley-oop', maneuver: 'alley-oop', at: { event: 'decolagem', plus: 0.4 }, camera: 'corpo' },
+  { id: 'full', label: '14e. Full Rotation (540)', maneuver: 'full-rotation', at: { event: 'decolagem', plus: 0.5 }, camera: 'corpo' },
+  { id: 'backflip', label: '15. Backflip', maneuver: 'backflip', at: { event: 'decolagem', plus: 0.45 }, camera: 'corpo' },
+  { id: 'rodeo', label: '15b. Rodeo Flip', maneuver: 'rodeo-flip', at: { event: 'decolagem', plus: 0.45 }, camera: 'corpo' },
+  { id: 'christ', label: '16. Christ Air', maneuver: 'christ-air', at: { event: 'decolagem', plus: 0.5 }, camera: 'corpo' },
+  { id: 'superman', label: '16b. Superman (pés fora)', maneuver: 'superman', at: { event: 'decolagem', plus: 0.55 }, camera: 'corpo' },
+  { id: 'superwoman', label: '16c. Superwoman', maneuver: 'superwoman', at: { event: 'decolagem', plus: 0.55 }, camera: 'corpo' },
+  { id: 'varial', label: '16d. Varial Air (prancha gira sozinha)', maneuver: 'varial-air', at: { event: 'decolagem', plus: 0.35 }, camera: 'corpo' },
   // Descida e pouso
-  { id: 'descida', label: '17. Descida e preparação do pouso', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'pouso', plus: -0.15 }, camera: 'jogo' },
-  { id: 'limpa', label: '18. Pouso limpo (absorção)', maneuver: 'air-reverse', outcome: 'limpa', at: { event: 'pouso', plus: 0.1 }, camera: 'corpo' },
-  { id: 'instavel', label: '19. Pouso instável', maneuver: 'air-reverse', outcome: 'instavel', results: lateRotation, at: { event: 'pouso', plus: 0.3 }, camera: 'corpo' },
-  { id: 'queda', label: '20. Queda (corpo e prancha separados)', maneuver: 'air-reverse', outcome: 'queda', results: missRotation, at: { event: 'pouso', plus: 0.55 }, camera: 'jogo' },
+  { id: 'descida', label: '17. Descida e preparação do pouso', maneuver: 'straight-air', at: { event: 'pouso', plus: -0.15 }, camera: 'jogo' },
+  { id: 'limpa', label: '18. Pouso limpo (absorção)', maneuver: 'air-reverse', at: { event: 'pouso', plus: 0.1 }, camera: 'corpo' },
+  { id: 'instavel', label: '19. Pouso instável (grab segurado no toque)', maneuver: 'indy-air', mistake: 'instavel', at: { event: 'pouso', plus: 0.3 }, camera: 'corpo' },
+  { id: 'queda', label: '20. Queda (corpo e prancha separados)', maneuver: 'air-reverse', mistake: 'queda', at: { event: 'pouso', plus: 0.55 }, camera: 'jogo' },
   // Visual
-  { id: 'rosto', label: 'Rosto e cabelo', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'emPe', plus: 0.3 }, camera: 'rosto' },
-  { id: 'maos', label: 'Mãos e dedos', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'emPe', plus: 0.3 }, camera: 'maos' },
-  { id: 'prancha', label: 'Prancha, quilhas, parafina e leash', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'emPe', plus: 0.3 }, camera: 'prancha' },
-  { id: 'agua', label: 'Prancha na água', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'emPe', plus: 0.6 }, camera: 'agua' },
-  { id: 'spray', label: 'Espuma e spray de perto', maneuver: 'air-reverse', outcome: 'limpa', at: { event: 'decolagem', plus: 0.18 }, camera: 'agua' },
-  { id: 'onda', label: 'Onda inteira', maneuver: 'straight-air', outcome: 'limpa', at: { event: 'decolagem', plus: 0.3 }, camera: 'onda' },
+  { id: 'rosto', label: 'Rosto e cabelo', maneuver: 'straight-air', at: { event: 'emPe', plus: 0.3 }, camera: 'rosto' },
+  { id: 'maos', label: 'Mãos e dedos', maneuver: 'straight-air', at: { event: 'emPe', plus: 0.3 }, camera: 'maos' },
+  { id: 'prancha', label: 'Prancha, quilhas, parafina e leash', maneuver: 'straight-air', at: { event: 'emPe', plus: 0.3 }, camera: 'prancha' },
+  { id: 'agua', label: 'Prancha na água', maneuver: 'straight-air', at: { event: 'emPe', plus: 0.6 }, camera: 'agua' },
+  { id: 'spray', label: 'Espuma e spray de perto', maneuver: 'air-reverse', at: { event: 'decolagem', plus: 0.18 }, camera: 'agua' },
+  { id: 'onda', label: 'Onda inteira', maneuver: 'straight-air', at: { event: 'decolagem', plus: 0.3 }, camera: 'onda' },
 ];
 
 const tmp = new THREE.Vector3();
@@ -124,7 +132,7 @@ export function mountLab(app: App) {
   const run = (s: Scene) => {
     current = s;
     debug.reset();
-    app.labScene({ maneuver: s.maneuver, outcome: s.outcome, at: s.at, results: s.results });
+    app.labScene({ maneuver: s.maneuver, at: s.at, mistake: s.mistake });
     app.world.camRig.override = cameraFor(app, s.camera);
     app.frame(0);
     debug.update();

@@ -44,6 +44,15 @@ export interface BodyParams {
   tweakRoll: number;
   tweakPitch: number;
   legSplit: number;
+  /**
+   * Pés fora da prancha (0 a 1), só nas extensões que pedem isso: Superman
+   * (pernas para trás, kickBack), Superwoman (pernas para o lado, kickSide) e
+   * o chute do Varial. bodyLay deita o tronco na direção do bico.
+   */
+  feetOff: number;
+  kickBack: number;
+  kickSide: number;
+  bodyLay: number;
 }
 
 type Arm = [out: number, up: number, fwd: number];
@@ -66,6 +75,10 @@ interface PoseSpec {
   tweakRoll?: number;
   tweakPitch?: number;
   legSplit?: number;
+  feetOff?: number;
+  kickBack?: number;
+  kickSide?: number;
+  bodyLay?: number;
 }
 
 /** Monta uma pose completa. Os braços padrão seguem abertura (spread) e altura (armsUp). */
@@ -93,6 +106,10 @@ export function pose(s: PoseSpec): BodyParams {
     tweakRoll: s.tweakRoll ?? 0,
     tweakPitch: s.tweakPitch ?? 0,
     legSplit: s.legSplit ?? 0,
+    feetOff: s.feetOff ?? 0,
+    kickBack: s.kickBack ?? 0,
+    kickSide: s.kickSide ?? 0,
+    bodyLay: s.bodyLay ?? 0,
   };
 }
 
@@ -172,6 +189,23 @@ export const POSES = {
   grabMelon: pose({ crouch: 0.22, tuck: 0.95, side: -0.35, twist: -0.45, headPitch: 0.35, headYaw: -0.4, back: [0.38, 0.4, -0.1], grip: 1, tweakRoll: -0.3, tweakPitch: 0.12 }),
   /** Stalefish: mão de trás por trás da perna de trás, na borda dos calcanhares; rabeta para fora. */
   grabStalefish: pose({ crouch: 0.25, tuck: 0.85, lean: -0.1, side: -0.4, twist: 0.6, headPitch: 0.35, headYaw: 0.4, front: [0.36, 0.32, 0.25], grip: 1, tweakRoll: -0.3, legSplit: 0.4 }),
+
+  /** Method: mão da frente na borda dos calcanhares e a prancha puxada para cima, atrás do corpo. */
+  grabMethod: pose({ crouch: 0.3, tuck: 0.8, lean: -0.15, side: -0.5, twist: -0.4, headPitch: 0.1, headYaw: -0.6, hipOpen: 0.15, back: [0.42, 0.42, -0.05], grip: 1, tweakRoll: -0.55, tweakPitch: 0.3, legSplit: -0.2 }),
+  /** Japan: Mute puxado, joelho da frente desce e a prancha vai para trás das costas, bico para cima. */
+  grabJapan: pose({ crouch: 0.35, tuck: 0.9, lean: 0.1, side: 0.35, twist: -0.3, headPitch: 0.25, headYaw: -0.1, hipOpen: 0.45, back: [0.38, 0.45, -0.25], grip: 1, tweakRoll: 0.5, tweakPitch: 0.38, legSplit: -0.35 }),
+  /** Tail Grab: a mão de trás desce até a rabeta, peito fecha, bico desce. */
+  grabTail: pose({ crouch: 0.3, tuck: 0.75, lean: -0.35, side: -0.1, twist: 0.5, headPitch: 0.35, headYaw: 0.35, front: [0.4, 0.3, 0.2], grip: 1, tweakPitch: -0.3, legSplit: 0.3 }),
+  /** Christ Air: corpo em cruz, mão de trás no Indy e braço da frente esticado. */
+  christ: pose({ crouch: 0.05, tuck: 0.2, lean: -0.05, side: 0.15, twist: -0.1, headPitch: -0.25, headYaw: -0.3, front: [0.62, 0.18, 0.05], grip: 1, tweakRoll: 0.55, tweakPitch: 0.1 }),
+  /** Superman: as duas mãos nas bordas perto do bico, pernas esticadas para trás, tronco deitado. */
+  superman: pose({ crouch: 0.1, tuck: 0, lean: 0.4, side: 0, twist: 0, headPitch: -0.45, headYaw: 0, hipOpen: 1.1, grip: 1, feetOff: 1, kickBack: 1, bodyLay: 1, tweakPitch: -0.15 }),
+  /** Superwoman: uma mão na borda dos dedos, pernas saindo para o lado. */
+  superwoman: pose({ crouch: 0.15, tuck: 0.1, lean: 0.25, side: 0.3, twist: -0.25, headPitch: -0.3, headYaw: -0.2, hipOpen: 0.7, back: [0.5, 0.35, -0.1], grip: 1, feetOff: 1, kickSide: 1, bodyLay: 0.55, tweakRoll: 0.3 }),
+  /** Varial: os pés soltam e chutam a prancha, braços abertos para manter o corpo parado. */
+  varialChute: pose({ crouch: 0.25, tuck: 0.7, headPitch: 0.5, spread: 0.95, armsUp: 0.35, feetOff: 1 }),
+  /** Flip para trás: joelhos no peito, cabeça jogada para trás. */
+  flipFechado: pose({ crouch: 0.15, tuck: 1, lean: -0.2, headPitch: -0.7, front: [0.08, -0.05, 0.3], back: [0.08, -0.05, 0.28], grip: 0.6 }),
 
   // ---------- Pouso ----------
   /** Absorção do impacto com joelhos e quadril. */

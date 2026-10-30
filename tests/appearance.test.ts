@@ -66,7 +66,7 @@ describe('catálogo de aparência', () => {
     for (const t of itemsOf('tatuagem')) expect(TATTOO_DESIGNS).toContain(t.id.replace('tattoo-', ''));
   });
 
-  it('não tem campos de desempenho: aparência não muda atributo, chance nem física', () => {
+  it('não tem campos de desempenho: aparência não muda atributo, nem física', () => {
     for (const c of CATALOG) expect(Object.keys(c).sort()).toEqual(expect.arrayContaining(['category', 'id', 'name', 'tags', 'unlock']));
     for (const c of CATALOG) expect(c).not.toHaveProperty('mods');
     const dims = BOARDS.map((b) => boardMeters(b.dims));
@@ -74,7 +74,7 @@ describe('catálogo de aparência', () => {
     const run = () => {
       const h = new HeatSession({ boardId: 'standard', finId: 'thruster', locationId: 'pico-leste', height: 1.5, power: 60, windType: 'terral', windSpeed: 10, sectionQuality: 60 }, defaultSave().attributes, defaultSave().unlockedManeuvers, [], seededRng(5));
       h.spin();
-      return h.estimate();
+      return h.physics();
     };
     const a = run();
     const look = cloneLook(DEFAULT_LOOK);
