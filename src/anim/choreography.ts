@@ -6,6 +6,9 @@ import type { Keyframe, PoseName } from './poses';
 // Cada manobra tem a sua mecânica; elas compartilham componentes (compressão,
 // extensão, preparação do pouso), mas não uma animação inteira.
 //
+// Toda saída começa igual: compressão no lip, prancha na rabeta (o pé de trás
+// empurra e o bico sobe) e só então a extensão própria de cada manobra.
+//
 // Sentido do giro na base do jogo (de frente para a onda, pé direito à frente):
 //   - frontside: o peito lidera, abrindo para o bico (para a direita na tela);
 //   - backside: as costas lideram, o surfista gira "cego" olhando por cima do
@@ -91,7 +94,8 @@ const CHOREOS: Record<ChoreoId, Choreo> = {
       const prep = prepAt(T, grab ? ga + 0.22 : 0.4);
       return withGrab([
         { t: 0, pose: 'compressao' },
-        { t: 0.1, pose: 'extensao' },
+        { t: 0.07, pose: 'popRabeta' },
+        { t: 0.19, pose: 'extensao' },
         { t: Math.min(T * 0.4, 0.38), pose: 'straightFlutua' },
         { t: prep, pose: 'preparaPouso' },
         { t: T, pose: 'preparaPouso' },
@@ -108,7 +112,8 @@ const CHOREOS: Record<ChoreoId, Choreo> = {
       const prep = prepAt(T, grab ? ga + 0.22 : Math.max(0.42, ms + 0.1));
       return withGrab([
         { t: 0, pose: 'compressao' },
-        { t: 0.11, pose: 'fsExtensao' },
+        { t: 0.07, pose: 'popRabeta' },
+        { t: 0.19, pose: 'fsExtensao' },
         { t: Math.max(0.3, ms), pose: 'fsPico' },
         { t: Math.max(0.36, prep - 0.1), pose: 'fsPico' },
         { t: prep, pose: 'preparaPouso' },
@@ -126,7 +131,8 @@ const CHOREOS: Record<ChoreoId, Choreo> = {
       const prep = prepAt(T, grab ? ga + 0.22 : Math.max(0.42, ms + 0.1));
       return withGrab([
         { t: 0, pose: 'compressao' },
-        { t: 0.12, pose: 'bsExtensao' },
+        { t: 0.07, pose: 'popRabeta' },
+        { t: 0.19, pose: 'bsExtensao' },
         { t: Math.max(0.32, ms), pose: 'bsPico' },
         { t: Math.max(0.38, prep - 0.1), pose: 'bsPico' },
         { t: prep, pose: 'preparaPouso' },
@@ -144,8 +150,9 @@ const CHOREOS: Record<ChoreoId, Choreo> = {
       const prep = prepAt(T, grab ? Math.max(me, ga) + 0.12 : me + 0.05);
       return withGrab([
         { t: 0, pose: 'compressao' },
-        { t: 0.1, pose: 'fsExtensao' },
-        { t: Math.max(0.2, ms - 0.12), pose: 'fsReverseInicio' },
+        { t: 0.07, pose: 'popRabeta' },
+        { t: 0.19, pose: 'fsExtensao' },
+        { t: Math.max(0.28, ms - 0.12), pose: 'fsReverseInicio' },
         { t: Math.max(0.3, ms + 0.08), pose: 'reverseMeio' },
         { t: Math.max(0.36, me + 0.05), pose: 'giroAbreFinal' },
         { t: prep, pose: 'preparaPouso' },
@@ -163,8 +170,9 @@ const CHOREOS: Record<ChoreoId, Choreo> = {
       const prep = prepAt(T, grab ? Math.max(me, ga) + 0.12 : me + 0.05);
       return withGrab([
         { t: 0, pose: 'compressao' },
-        { t: 0.12, pose: 'bsExtensao' },
-        { t: Math.max(0.2, ms - 0.12), pose: 'bsReverseInicio' },
+        { t: 0.07, pose: 'popRabeta' },
+        { t: 0.19, pose: 'bsExtensao' },
+        { t: Math.max(0.28, ms - 0.12), pose: 'bsReverseInicio' },
         { t: Math.max(0.3, ms + 0.08), pose: 'reverseMeio' },
         { t: Math.max(0.36, me + 0.05), pose: 'giroAbreFinal' },
         { t: prep, pose: 'preparaPouso' },
@@ -182,8 +190,9 @@ const CHOREOS: Record<ChoreoId, Choreo> = {
       const prep = prepAt(T, grab ? Math.max(me, ga) + 0.12 : me + 0.12);
       return withGrab([
         { t: 0, pose: 'compressao' },
-        { t: 0.1, pose: 'extensao' },
-        { t: Math.max(0.2, ms - 0.14), pose: 'fs360Abre' },
+        { t: 0.07, pose: 'popRabeta' },
+        { t: 0.19, pose: 'extensao' },
+        { t: Math.max(0.28, ms - 0.14), pose: 'fs360Abre' },
         { t: Math.max(0.3, ms + 0.1), pose: 'giroFechado' },
         { t: Math.max(0.34, me - 0.02), pose: 'giroFechado' },
         { t: Math.max(0.4, me + 0.2), pose: 'giroAbreFinal' },
@@ -202,8 +211,9 @@ const CHOREOS: Record<ChoreoId, Choreo> = {
       const prep = prepAt(T, grab ? Math.max(me, ga) + 0.12 : me + 0.12);
       return withGrab([
         { t: 0, pose: 'compressao' },
-        { t: 0.12, pose: 'bsExtensao' },
-        { t: Math.max(0.2, ms - 0.14), pose: 'bs360Abre' },
+        { t: 0.07, pose: 'popRabeta' },
+        { t: 0.19, pose: 'bsExtensao' },
+        { t: Math.max(0.28, ms - 0.14), pose: 'bs360Abre' },
         { t: Math.max(0.3, ms + 0.1), pose: 'giroFechado' },
         { t: Math.max(0.34, me - 0.02), pose: 'giroFechado' },
         { t: Math.max(0.4, me + 0.2), pose: 'giroAbreFinal' },
@@ -222,8 +232,9 @@ const CHOREOS: Record<ChoreoId, Choreo> = {
       const prep = prepAt(T, me + 0.12);
       return withGrab([
         { t: 0, pose: 'compressao' },
-        { t: 0.12, pose: 'bsExtensao' },
-        { t: Math.max(0.2, ms - 0.12), pose: 'bs360Abre' },
+        { t: 0.07, pose: 'popRabeta' },
+        { t: 0.19, pose: 'bsExtensao' },
+        { t: Math.max(0.28, ms - 0.12), pose: 'bs360Abre' },
         { t: Math.max(0.3, ms + 0.08), pose: 'giroFechado' },
         { t: Math.max(0.34, me), pose: 'giroFechado' },
         { t: Math.max(0.4, me + 0.18), pose: 'giroAbreFinal' },

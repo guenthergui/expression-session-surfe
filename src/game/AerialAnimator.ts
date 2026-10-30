@@ -105,6 +105,13 @@ const LANDING_ALIGN = 0.28;
 /** Diferença máxima de giro entre ombros e quadril, e entre quadril e prancha (graus). */
 const MAX_SHOULDER_HIP = 45;
 const MAX_HIP_BOARD = 50;
+/** Saída pela rabeta: ângulo máximo do bico (rad), tempo até ele, tempo para nivelar e tempo com a rabeta na água (s). */
+const POP_PEAK = 0.4;
+const POP_RISE = 0.09;
+const POP_SETTLE = 0.24;
+const TAIL_HOLD = 0.11;
+/** Partes do corpo com movimento secundário no ar. */
+const SECONDARY_KEYS: (keyof BodyParams)[] = ['faOut', 'faUp', 'faFwd', 'baOut', 'baUp', 'baFwd', 'headYaw', 'headPitch', 'twist'];
 
 function smooth(u: number): number {
   const t = Math.min(1, Math.max(0, u));
@@ -166,6 +173,9 @@ export class AerialAnimator {
   /** Distância ombro–borda depois do ajuste do grab (m), para a depuração. */
   grabReach = 0;
   private reachPrev: { drop: number; shift: number; yaw: number; dBend: number; dTwist: number; dSide: number } | null = null;
+  /** Ajuste do grab aplicado no corpo: segue a busca com suavização, para os passos dela não virarem trancos. */
+  private reachSmooth: { drop: number; shift: number; yaw: number; dBend: number; dTwist: number; dSide: number } | null = null;
+  private stepDt = 1 / 60;
   private impactDepth = 0.8;
   private stateLabel = '';
   private zone: FaceZone | null = null;
@@ -177,6 +187,21 @@ export class AerialAnimator {
   // Objetos reaproveitados a cada quadro (sem alocar no laço principal).
   private readonly boardPos = new THREE.Vector3();
   private readonly boardQuat = new THREE.Quaternion();
+  /**
+   * Referencial do corpo: igual ao da prancha na água, mas no ar e na saída
+   * da rabeta ele não segue toda a inclinação da prancha. As pernas absorvem
+   * a diferença (os pés continuam presos ao deck), como num surfista de verdade.
+   */
+  private readonly bodyPos = new THREE.Vector3();
+  private readonly bodyQuat = new THREE.Quaternion();
+  /** Movimento secundário no ar: braços e cabeça seguem a pose com um pequeno atraso. */
+  private readonly secondary = new Map<keyof BodyParams, { x: number; v: number }>();
+  private tailReleased = false;
+  /** Bico subindo em volta da rabeta (rad): a prancha pivota no ponto onde a rabeta toca a água. */
+  private popPitch = 0;
+  private popAtLaunch = 0;
+  private readonly rideQuatNoPop = new THREE.Quaternion();
+  private readonly tailAtLaunch = new THREE.Vector3();
   private readonly tmpA = new THREE.Vector3();
   private readonly tmpB = new THREE.Vector3();
   private readonly tmpC = new THREE.Vector3();
@@ -266,7 +291,12 @@ export class AerialAnimator {
     };
     this.spins = seq.map((s, index) => ({ s, index })).filter((x) => x.s.phase === 'rotacao')
       .map(({ s, index }) => ({ index, curve: new SpinCurve(s.time, inertia) }));
-    this.launchQuat.copy(this.boardQuat);
+    // Sai da orientação da água sem o pivô na rabeta, que continua no ar a partir do mesmo ângulo.
+    this.launchQuat.copy(this.rideQuatNoPop);
+    this.popAtLaunch = this.popPitch;
+    this.tailPoint(this.tailAtLaunch, setV(this.tmpD, plan.launch), this.launchQuat);
+    this.tailReleased = false;
+    this.secondary.clear();
     this.rideBody = { ...this.smoothedBody };
     // O giro acontece em volta do centro de massa combinado, que fica entre os pés (atrás do centro da prancha).
     const com = combinedCom(this.anchors.midX, this.board.deckY(0, 0), H_TAKEOFF, 0);
@@ -331,9 +361,11 @@ export class AerialAnimator {
   }
 
   update(t: number, dt: number, outcome: Outcome | null): AnimFrame {
+    this.stepDt = dt;
     const events: SprayEvent[] = [];
     this.frame.events = events;
     const run = this.run;
+    this.popPitch = 0;
     let phase: AirPhase;
     let airborne = false;
     let body: BodyParams;
@@ -390,6 +422,7 @@ export class AerialAnimator {
         }
       }
       this.rideBody = { ...body };
+      this.rideQuatNoPop.copy(boardQuat);
     } else if (t < this.airEnd) {
       // Voo: o centro de massa segue a balística.
       airborne = true;
@@ -422,33 +455,40 @@ export class AerialAnimator {
       // Sem os comandos de giro, a coreografia não força a rotação: o corpo fica num aéreo neutro.
       if (this.spins.length && this.spins.every((s) => this.track.results[s.index] === 'miss')) body = blendPoses(body, POSES.arNeutro, 0.7);
       this.smoothedBody = { ...body };
+      body = this.followThrough(body, dt);
       const s = this.spinSign;
       hipYaw = THREE.MathUtils.degToRad(this.hips.value - this.boardSpin.value) * s;
       chestYaw = THREE.MathUtils.degToRad(this.shoulderAngle - this.hips.value) * s;
 
       // Orientação: direção do voo, bico acompanhando a trajetória, e os ajustes da manobra.
+      // O corpo recebe só parte da inclinação e dos ajustes da prancha (as pernas absorvem o resto).
       const x0 = this.tmpA.set(vel.x, 0, vel.z).normalize();
       const z0 = this.tmpB.crossVectors(x0, UP).normalize();
-      boardQuat.setFromRotationMatrix(this.tmpM.makeBasis(x0, UP, z0));
-      const pitch = Math.atan2(vel.y, Math.hypot(vel.x, vel.z)) * 0.55 + body.tweakPitch + body.legSplit * 0.22;
+      const flightPitch = Math.atan2(vel.y, Math.hypot(vel.x, vel.z)) * 0.55;
+      const pitch = flightPitch + body.tweakPitch + body.legSplit * 0.22;
       const tweakRoll = body.tweakRoll * (this.maneuver.grab ? 0.5 + 0.5 * grab : 1);
-      boardQuat.multiply(this.tmpQ2.setFromAxisAngle(Z_AXIS, pitch)).multiply(this.tmpQ2.setFromAxisAngle(X_AXIS, tweakRoll));
       const ang = THREE.MathUtils.degToRad(this.boardSpin.value) * s;
-      const spinAxis = this.spinAxisWorld(this.tmpC, x0);
-      boardQuat.premultiply(this.tmpQ2.setFromAxisAngle(spinAxis, ang));
-      // Saindo da água: a prancha passa da orientação na face para a do voo sem salto.
-      if (tAir < TAKEOFF_BLEND) boardQuat.slerpQuaternions(this.launchQuat, this.tmpQ3.copy(boardQuat), smooth(tAir / TAKEOFF_BLEND));
-
-      // Chegando na água: a prancha se alinha com a face, mantendo o giro feito.
+      const spinAxis = this.spinAxisWorld(this.tmpC, x0).clone();
+      const basis = new THREE.Quaternion().setFromRotationMatrix(this.tmpM.makeBasis(x0, UP, z0));
       const toLand = T - tAir;
-      if (toLand < LANDING_ALIGN) {
-        const w = this.waveAt(this.airEnd);
-        const land = setV(this.tmpA, plan.landing);
-        const after = setV(this.tmpB, rideOutPosition(plan, w, 0.05, this.airEnd + 0.05));
-        const ride = this.rideQuat(this.tmpQ3, land.clone(), after.clone(), w, 0);
-        if (this.maneuver.axis !== 'flip') ride.premultiply(this.tmpQ2.setFromAxisAngle(UP, ang));
-        boardQuat.slerp(ride, smooth(1 - toLand / LANDING_ALIGN));
-      }
+      const orient = (out: THREE.Quaternion, p: number, r: number) => {
+        out.copy(basis).multiply(this.tmpQ2.setFromAxisAngle(Z_AXIS, p)).multiply(this.tmpQ2.setFromAxisAngle(X_AXIS, r));
+        out.premultiply(this.tmpQ2.setFromAxisAngle(spinAxis, ang));
+        // Saindo da água: passa da orientação na face para a do voo sem salto.
+        if (tAir < TAKEOFF_BLEND) out.slerpQuaternions(this.launchQuat, this.tmpQ3.copy(out), smooth(tAir / TAKEOFF_BLEND));
+        // Chegando na água: alinha com a face, mantendo o giro feito.
+        if (toLand < LANDING_ALIGN) {
+          const w = this.waveAt(this.airEnd);
+          const land = setV(new THREE.Vector3(), plan.landing);
+          const after = setV(new THREE.Vector3(), rideOutPosition(plan, w, 0.05, this.airEnd + 0.05));
+          const ride = this.rideQuat(this.tmpQ3, land, after, w, 0);
+          if (this.maneuver.axis !== 'flip') ride.premultiply(this.tmpQ2.setFromAxisAngle(UP, ang));
+          out.slerp(ride, smooth(1 - toLand / LANDING_ALIGN));
+        }
+        return out;
+      };
+      orient(boardQuat, pitch, tweakRoll);
+      orient(this.bodyQuat, flightPitch + (pitch - flightPitch) * 0.35, tweakRoll * 0.35);
 
       // Posição: centro de massa na balística; a prancha gira em volta dele.
       setV(boardPos, airPosition(plan, tAir));
@@ -459,12 +499,30 @@ export class AerialAnimator {
       const h = pelvisHeight(body, grab);
       const lift = THREE.MathUtils.clamp(H_TAKEOFF - h, -0.25, 0.4) * smooth(tAir / 0.12) * (1 - smooth((tAir - (T - 0.16)) / 0.16));
       boardPos.addScaledVector(this.tmpA.set(0, 1, 0).applyQuaternion(boardQuat), lift);
+      this.bodyPos.copy(boardPos);
+
+      // Saída pela rabeta: o pé de trás empurra a rabeta contra o lip e o bico sobe primeiro,
+      // com a prancha girando em volta da rabeta, que ainda toca a água. Quando a rabeta solta,
+      // os joelhos sobem e trazem a prancha para baixo do corpo, nivelando o bico.
+      const rise = this.popAtLaunch + (POP_PEAK - this.popAtLaunch) * Math.sin((Math.PI / 2) * Math.min(1, tAir / POP_RISE));
+      const pop = rise * (1 - smooth((tAir - POP_RISE) / POP_SETTLE));
+      const hold = 1 - smooth(tAir / TAIL_HOLD);
+      if (pop > 1e-4 || hold > 1e-4) {
+        const lv = plan.velocity;
+        const tailTarget = this.tmpD.copy(this.tailAtLaunch).add(this.tmpE.set(lv.x * tAir, lv.y * tAir * 0.45, lv.z * tAir));
+        this.pivotOnTail(pop, hold, tailTarget);
+      }
+      if (!this.tailReleased && hold < 0.15) {
+        this.tailReleased = true;
+        const tail = this.tailPoint(new THREE.Vector3(), boardPos, boardQuat);
+        events.push({ kind: 'launch', pos: tail, dir: new THREE.Vector3(-0.3, 1, 0.2).normalize(), strength: 0.45 });
+      }
 
       const apexT = plan.velocity.y / GRAVITY;
       const lastSpin = this.spins.length ? Math.max(...this.spins.map((x) => x.curve.time)) + DRIVE_AFTER : 0;
       const inMove = Math.abs(this.hipAngVel) > 90 || grab > 0.1 || (tAir >= this.moveStart - 0.2 && tAir <= Math.max(this.moveEnd + 0.25, lastSpin));
-      phase = tAir < 0.12 ? 'decolagem' : toLand < 0.25 ? 'aterrissagem' : inMove ? 'manobra' : tAir < apexT ? 'subida' : 'descida';
-      this.stateLabel = `${{ decolagem: 'decolagem · extensão', aterrissagem: 'reorientando para o pouso', manobra: grab > 0.1 ? 'manobra · grab' : 'manobra · giro', subida: 'subida', descida: 'descida' }[phase as 'decolagem']}`;
+      phase = tAir < TAIL_HOLD + 0.04 ? 'decolagem' : toLand < 0.25 ? 'aterrissagem' : inMove ? 'manobra' : tAir < apexT ? 'subida' : 'descida';
+      this.stateLabel = `${{ decolagem: hold > 0.15 ? 'decolagem · prancha na rabeta' : 'decolagem · rabeta soltou, extensão', aterrissagem: 'reorientando para o pouso', manobra: grab > 0.1 ? 'manobra · grab' : 'manobra · giro', subida: 'subida', descida: 'descida' }[phase as 'decolagem']}`;
       this.roll = tweakRoll;
     } else {
       // Pouso e saída
@@ -509,6 +567,12 @@ export class AerialAnimator {
       if (Math.random() < dt * 30) events.push({ kind: 'carve', pos: boardPos.clone(), dir: next.clone().sub(boardPos).normalize(), strength: 0.6 + Math.abs(this.roll) });
     }
 
+    if (!airborne) {
+      this.bodyPos.copy(boardPos);
+      this.bodyQuat.copy(boardQuat);
+      // Chegando ao lip, o pé de trás carrega a rabeta e o bico sobe: o corpo não inclina junto.
+      if (this.popPitch > 0) this.pivotOnTail(this.popPitch, 0, null);
+    }
     this.boardPose(body, grab, windmill, hipYaw, chestYaw);
     if (prone > 0) this.blendProne(prone, t, run.state === 'paddling');
     const water = surfaceHeight(this.waveAt(t), boardPos.x, boardPos.z);
@@ -542,6 +606,8 @@ export class AerialAnimator {
     let c = 0;
     if (run.takeoffReady && ttp > -0.08) c = smooth(1 - Math.abs(ttp) / 0.45);
     this.compressing = c > 0.05;
+    // O pé de trás carrega a rabeta subindo o lip: o bico começa a subir ainda na água.
+    this.popPitch = 0.12 * c;
     if (c > 0) {
       target = blendPoses(target, POSES.compressao, 0.9 * c);
       target.twist += -this.spinSign * THREE.MathUtils.degToRad(this.choreo.windup) * c;
@@ -551,6 +617,57 @@ export class AerialAnimator {
     if (run.accelerating) target.crouch += 0.12 * Math.sin(t * 7) * (1 - c);
     this.stateLabel = c > 0.05 ? 'aproximação do Lip · compressão' : run.accelerating ? `acelerando · ${seg ?? ''}` : `surf · ${seg === 'base' ? 'bottom turn' : seg ?? ''}`;
     return target;
+  }
+
+  /** Ponto da rabeta que toca a água (embaixo, perto da ponta), no mundo. */
+  private tailPoint(out: THREE.Vector3, pos: THREE.Vector3, quat: THREE.Quaternion): THREE.Vector3 {
+    const L = this.board.shape.length;
+    return out.set(-L / 2 + 0.08, -this.board.shape.thickness * 0.4, 0).applyQuaternion(quat).add(pos);
+  }
+
+  /**
+   * Gira a prancha (só a prancha) levantando o bico em volta da rabeta. Com hold,
+   * a rabeta ainda é puxada para o ponto onde continua presa na água.
+   */
+  private pivotOnTail(angle: number, hold: number, tailTarget: THREE.Vector3 | null) {
+    const tail = this.tailPoint(new THREE.Vector3(), this.boardPos, this.boardQuat);
+    const axis = this.tmpB.set(0, 0, 1).applyQuaternion(this.boardQuat);
+    const q = this.tmpQ2.setFromAxisAngle(axis, angle);
+    this.boardQuat.premultiply(q);
+    this.boardPos.sub(tail).applyQuaternion(q).add(tail);
+    if (tailTarget && hold > 0) {
+      const now = this.tailPoint(this.tmpB, this.boardPos, this.boardQuat);
+      this.boardPos.addScaledVector(now.sub(tailTarget), -hold);
+    }
+  }
+
+  /**
+   * Movimento secundário no ar: braços, cabeça e torção seguem a pose como
+   * massas presas por molas (sistema de segunda ordem, passo fixo). Eles
+   * chegam um pouco depois e assentam com um leve balanço, em vez de parar
+   * exatamente na pose-chave.
+   */
+  private followThrough(target: BodyParams, dt: number): BodyParams {
+    const out = { ...target };
+    const w = 15;
+    const z = 0.72;
+    for (const k of SECONDARY_KEYS) {
+      let st = this.secondary.get(k);
+      if (!st) {
+        st = { x: this.rideBody[k], v: 0 };
+        this.secondary.set(k, st);
+      }
+      let rest = dt;
+      while (rest > 1e-6) {
+        const h = Math.min(rest, 1 / 240);
+        rest -= h;
+        const a = w * w * (target[k] - st.x) - 2 * z * w * st.v;
+        st.v += a * h;
+        st.x += st.v * h;
+      }
+      out[k] = st.x;
+    }
+    return out;
   }
 
   /** Eixo do giro: vertical, ou inclinado no flip (Rodeo). */
@@ -591,9 +708,11 @@ export class AerialAnimator {
     }
 
     // Pelve entre os pés, sentada para os calcanhares quando agacha; o peso desloca para o pé carregado.
-    toWorld(pose.pelvisPos, an.midX + b.lean * 0.1 - b.legSplit * 0.05, deck + h, -0.04 - 0.07 * b.crouch + b.side * 0.07);
+    // Ela é posicionada no referencial do corpo, que pode não acompanhar toda a inclinação da prancha.
+    stanceToBoard(pose.pelvisPos, an.midX + b.lean * 0.1 - b.legSplit * 0.05, deck + h, -0.04 - 0.07 * b.crouch + b.side * 0.07)
+      .applyQuaternion(this.bodyQuat).add(this.bodyPos);
     this.tmpEuler.set(0.12 + 0.22 * b.crouch + 0.2 * b.tuck, STANCE_YAW - b.hipOpen + hipYaw, -b.side * 0.12, 'YXZ');
-    pose.pelvisQuat.copy(boardQuat).multiply(this.tmpQ.setFromEuler(this.tmpEuler));
+    pose.pelvisQuat.copy(this.bodyQuat).multiply(this.tmpQ.setFromEuler(this.tmpEuler));
     this.constrainLegs();
 
     // Coluna e cabeça
@@ -613,6 +732,7 @@ export class AerialAnimator {
       this.reachForGrab(grabTarget, c.hand === 'tras' ? 1 : -1, grab);
     } else {
       this.reachPrev = null;
+      this.reachSmooth = null;
       this.grabReach = 0;
     }
     pose.headPitch = b.headPitch - pose.spineBend * 0.6;
@@ -646,7 +766,7 @@ export class AerialAnimator {
     // Joelhos: o da frente aponta para o bico; o de trás fecha para dentro, em direção ao da frente.
     const kneeFront = FRONT_SIDE === 'right' ? pose.kneePoleRight : pose.kneePoleLeft;
     const kneeBack = FRONT_SIDE === 'right' ? pose.kneePoleLeft : pose.kneePoleRight;
-    const kq = this.tmpQ.copy(boardQuat).multiply(this.tmpQ2.setFromAxisAngle(Y_AXIS, hipYaw * 0.5));
+    const kq = this.tmpQ.copy(this.bodyQuat).multiply(this.tmpQ2.setFromAxisAngle(Y_AXIS, hipYaw * 0.5));
     stanceToBoard(kneeFront, 0.5, 0.1 + 0.3 * b.tuck, 0.85).applyQuaternion(kq).normalize();
     stanceToBoard(kneeBack, 0.8, 0.05 + 0.3 * b.tuck, 0.6).applyQuaternion(kq).normalize();
     // Cotovelos para baixo, para trás e um pouco para fora.
@@ -736,15 +856,20 @@ export class AerialAnimator {
       p[best.k] = best.v;
       d = best.d;
     }
-    this.reachPrev = { drop: p.drop, shift: p.shift, yaw: p.yaw, dBend: p.bend - start.bend, dTwist: p.twist - start.twist, dSide: p.side - start.side };
-    this.grabReach = d;
+    const found = { drop: p.drop, shift: p.shift, yaw: p.yaw, dBend: p.bend - start.bend, dTwist: p.twist - start.twist, dSide: p.side - start.side };
+    this.reachPrev = found;
+    const sm = this.reachSmooth ?? (this.reachSmooth = { ...found });
+    const k = 1 - Math.exp(-this.stepDt * 22);
+    for (const key of Object.keys(found) as (keyof typeof found)[]) sm[key] += (found[key] - sm[key]) * k;
     // Aplica proporcional ao grab, para entrar e sair do grab sem salto.
-    pose.spineBend = THREE.MathUtils.lerp(start.bend, p.bend, grab);
-    pose.chestTwist = THREE.MathUtils.lerp(start.twist, p.twist, grab);
-    pose.spineSide = THREE.MathUtils.lerp(start.side, p.side, grab);
-    pose.pelvisPos.copy(pelvis0).addScaledVector(boardUp, -p.drop * grab).addScaledVector(toward, p.shift * grab);
-    pose.pelvisQuat.copy(quat0).premultiply(yawQ.setFromAxisAngle(boardUp, p.yaw * grab));
+    pose.spineBend = start.bend + sm.dBend * grab;
+    pose.chestTwist = start.twist + sm.dTwist * grab;
+    pose.spineSide = start.side + sm.dSide * grab;
+    pose.pelvisPos.copy(pelvis0).addScaledVector(boardUp, -sm.drop * grab).addScaledVector(toward, sm.shift * grab);
+    pose.pelvisQuat.copy(quat0).premultiply(yawQ.setFromAxisAngle(boardUp, sm.yaw * grab));
     this.constrainLegs();
+    shoulder.set(outSign * BODY.shoulderHalfWidth, 0.19, -0.005).applyMatrix4(this.chestMatrix(this.tmpM2));
+    this.grabReach = shoulder.distanceTo(target);
   }
 
   /** Mesma cadeia do rig (pelve → coluna → peito), para posicionar as mãos em relação aos ombros. */

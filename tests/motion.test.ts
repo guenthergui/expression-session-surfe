@@ -345,7 +345,7 @@ describe('giro e manobras', () => {
     // Subindo a face o corpo se estende; chegando ao lip, comprime (bottom turn → extensão → compressão → pop).
     const climbing = Math.max(...at(-0.8, -0.4));
     const before = Math.min(...at(-0.05, 0));
-    const after = Math.max(...at(0.1, 0.2));
+    const after = Math.max(...at(0.15, 0.3));
     expect(climbing - before).toBeGreaterThan(0.05); // centro de massa baixa na compressão
     expect(after - before).toBeGreaterThan(0.12); // e sobe com a extensão das pernas
   });

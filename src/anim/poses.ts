@@ -115,6 +115,11 @@ export const POSES = {
   topo: pose({ crouch: 0.6, lean: -0.1, side: -0.55, twist: -0.2, headYaw: -0.35, spread: 0.55, armsUp: 0.1 }),
   /** Compressão antes da decolagem: centro de massa baixo e peso no pé de trás. */
   compressao: pose({ crouch: 0.95, lean: -0.25, side: 0.15, headPitch: -0.15, spread: 0.3, armsUp: -0.35, grip: 0.3 }),
+  /**
+   * Prancha na rabeta: o pé de trás empurra a rabeta contra o lip (perna de trás
+   * estendendo), o joelho da frente sobe com o bico e os braços já sobem à frente.
+   */
+  popRabeta: pose({ crouch: 0.5, lean: -0.5, side: 0.1, legSplit: 0.5, headPitch: -0.3, front: [0.3, 0.18, 0.36], back: [0.22, 0.06, -0.12] }),
   /** Extensão explosiva na saída do lip: pernas esticam e braços sobem. */
   extensao: pose({ crouch: 0.1, lean: -0.1, headPitch: -0.25, spread: 0.6, armsUp: 0.45, tweakPitch: 0.12 }),
 
@@ -205,15 +210,47 @@ function resolve(p: PoseName | BodyParams): BodyParams {
   return typeof p === 'string' ? POSES[p] : p;
 }
 
-/** Avalia uma sequência de keyframes no tempo t, sempre de forma contínua. */
+/**
+ * Avalia uma sequência de keyframes no tempo t. A interpolação é cúbica e
+ * monotônica (Fritsch–Carlson) em cada parâmetro: a velocidade é contínua
+ * entre uma pose e a próxima, então o corpo não "para" em cada pose-chave
+ * (o que dava o aspecto robótico de pose a pose), e sem passar do alvo.
+ * Só desacelera onde o movimento de fato muda de sentido ou segura a pose.
+ */
 export function sampleSequence(keys: Keyframe[], t: number): BodyParams {
+  const n = keys.length;
   if (t <= keys[0].t) return { ...resolve(keys[0].pose) };
-  for (let i = 0; i < keys.length - 1; i++) {
-    const a = keys[i];
-    const b = keys[i + 1];
-    if (t <= b.t) return blendPoses(resolve(a.pose), resolve(b.pose), (t - a.t) / Math.max(1e-4, b.t - a.t));
+  if (t >= keys[n - 1].t) return { ...resolve(keys[n - 1].pose) };
+  let i = 0;
+  while (i < n - 2 && t > keys[i + 1].t) i++;
+  const p0 = resolve(keys[i].pose);
+  const p1 = resolve(keys[i + 1].pose);
+  const pPrev = i > 0 ? resolve(keys[i - 1].pose) : null;
+  const pNext = i + 2 < n ? resolve(keys[i + 2].pose) : null;
+  const t0 = keys[i].t;
+  const t1 = keys[i + 1].t;
+  const h = Math.max(1e-4, t1 - t0);
+  const hPrev = i > 0 ? Math.max(1e-4, t0 - keys[i - 1].t) : 0;
+  const hNext = i + 2 < n ? Math.max(1e-4, keys[i + 2].t - t1) : 0;
+  const u = (t - t0) / h;
+  const u2 = u * u;
+  const u3 = u2 * u;
+  const h00 = 2 * u3 - 3 * u2 + 1;
+  const h10 = u3 - 2 * u2 + u;
+  const h01 = -2 * u3 + 3 * u2;
+  const h11 = u3 - u2;
+  const out = { ...p0 };
+  // Tangente monotônica num ponto: zero quando a inclinação muda de sinal.
+  const tangent = (dA: number, dB: number) => (dA * dB <= 0 ? 0 : (2 * dA * dB) / (dA + dB));
+  for (const k of BODY_KEYS) {
+    const d = (p1[k] - p0[k]) / h;
+    const dPrev = pPrev ? (p0[k] - pPrev[k]) / hPrev : 0;
+    const dNext = pNext ? (pNext[k] - p1[k]) / hNext : 0;
+    const m0 = pPrev ? tangent(dPrev, d) : 0;
+    const m1 = pNext ? tangent(d, dNext) : 0;
+    out[k] = h00 * p0[k] + h10 * h * m0 + h01 * p1[k] + h11 * h * m1;
   }
-  return { ...resolve(keys[keys.length - 1].pose) };
+  return out;
 }
 
 /**
