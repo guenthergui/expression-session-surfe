@@ -1,11 +1,11 @@
 import { MAX_ATTRIBUTE } from '../data/attributes';
-import { COSMETICS } from '../data/cosmetics';
 import { BOARDS, FINS } from '../data/equipment';
 import { LOCATIONS } from '../data/locations';
 import { MANEUVERS } from './maneuvers';
 import { clamp } from './rng';
 import type { SaveData } from './save';
 import type { AttributeKey, ManeuverFamily, Outcome } from './types';
+import { refreshCosmetics } from './unlocks';
 
 export const SKILL_POINTS_PER_LEVEL = 4;
 /** Ponto de skill garantido por bateria completa, além dos pontos de nível. */
@@ -65,7 +65,7 @@ export function refreshUnlocks(save: SaveData): string[] {
   for (const l of LOCATIONS) if (l.unlockLevel <= save.level) add(save.unlockedLocations, l.id, `Local: ${l.name}`);
   for (const b of BOARDS) if (b.unlockLevel <= save.level) add(save.unlockedBoards, b.id, `Prancha: ${b.name}`);
   for (const f of FINS) if (f.unlockLevel <= save.level) add(save.unlockedFins, f.id, `Quilhas: ${f.name}`);
-  for (const c of COSMETICS) if (c.unlockLevel <= save.level) add(save.unlockedCosmetics, c.id, `Visual: ${c.name}`);
+  for (const c of refreshCosmetics(save)) unlocks.push(`Visual: ${c.name}`);
   return unlocks;
 }
 

@@ -8,7 +8,9 @@ import type { Quality } from '../core/save';
 /** Ajustes visuais por nível de qualidade. Cada campo muda algo real na cena. */
 export interface QualityProfile {
   label: string;
-  /** Limite do pixel ratio do renderizador (resolução interna). */
+  /** Fração da densidade de pixels da tela usada na cena 3D (1 = nativa). */
+  renderScale: number;
+  /** Teto do pixel ratio, para telas muito densas não derrubarem o desempenho. */
   pixelRatio: number;
   shadows: boolean;
   shadowSize: number;
@@ -27,10 +29,10 @@ export interface QualityProfile {
 }
 
 export const QUALITY: Record<Quality, QualityProfile> = {
-  baixa: { label: 'Low', pixelRatio: 0.85, shadows: false, shadowSize: 512, oceanStep: 0.7, particles: 350, renderDistance: 900, detailNormals: false, wakePoints: 0, bloom: false },
-  media: { label: 'Medium', pixelRatio: 1.25, shadows: true, shadowSize: 1024, oceanStep: 0.45, particles: 800, renderDistance: 1600, detailNormals: true, wakePoints: 40, bloom: false },
-  alta: { label: 'High', pixelRatio: 2, shadows: true, shadowSize: 2048, oceanStep: 0.35, particles: 1400, renderDistance: 2500, detailNormals: true, wakePoints: 80, bloom: false },
-  ultra: { label: 'Ultra', pixelRatio: 2, shadows: true, shadowSize: 4096, oceanStep: 0.27, particles: 2400, renderDistance: 4000, detailNormals: true, wakePoints: 140, bloom: true },
+  baixa: { label: 'Low', renderScale: 0.75, pixelRatio: 1.25, shadows: false, shadowSize: 512, oceanStep: 0.7, particles: 350, renderDistance: 900, detailNormals: false, wakePoints: 0, bloom: false },
+  media: { label: 'Medium', renderScale: 1, pixelRatio: 1.5, shadows: true, shadowSize: 1024, oceanStep: 0.45, particles: 800, renderDistance: 1600, detailNormals: true, wakePoints: 40, bloom: false },
+  alta: { label: 'High', renderScale: 1, pixelRatio: 2, shadows: true, shadowSize: 2048, oceanStep: 0.35, particles: 1400, renderDistance: 2500, detailNormals: true, wakePoints: 80, bloom: false },
+  ultra: { label: 'Ultra', renderScale: 1, pixelRatio: 2.5, shadows: true, shadowSize: 4096, oceanStep: 0.27, particles: 2400, renderDistance: 4000, detailNormals: true, wakePoints: 140, bloom: true },
 };
 
 export const QUALITY_ORDER: Quality[] = ['baixa', 'media', 'alta', 'ultra'];
@@ -43,6 +45,8 @@ export class Stage {
   profile: QualityProfile;
   private composer: EffectComposer | null = null;
   private bloomPass: UnrealBloomPass | null = null;
+  /** Nos menus a cena fica parada atrás da interface: vale a pena renderizar na resolução nativa. */
+  private sharp = false;
 
   constructor(container: HTMLElement, quality: Quality) {
     this.profile = QUALITY[quality];
@@ -60,7 +64,7 @@ export class Stage {
 
   applyQuality(quality: Quality) {
     this.profile = QUALITY[quality];
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.profile.pixelRatio));
+    this.updatePixelRatio();
     this.renderer.shadowMap.enabled = this.profile.shadows;
     this.camera.far = this.profile.renderDistance;
     this.camera.updateProjectionMatrix();
@@ -78,7 +82,26 @@ export class Stage {
     this.resize();
   }
 
+  /** Resolução interna: proporcional à densidade da tela, nunca um valor fixo menor que ela nos menus. */
+  pixelRatio(): number {
+    const dpr = window.devicePixelRatio || 1;
+    if (this.sharp) return Math.min(dpr, Math.max(2, this.profile.pixelRatio));
+    return Math.min(dpr * this.profile.renderScale, this.profile.pixelRatio);
+  }
+
+  setSharp(on: boolean) {
+    if (on === this.sharp) return;
+    this.sharp = on;
+    this.resize();
+  }
+
+  private updatePixelRatio() {
+    this.renderer.setPixelRatio(this.pixelRatio());
+  }
+
   resize() {
+    // A densidade muda ao arrastar a janela para outro monitor ou ao mudar o zoom do navegador.
+    this.updatePixelRatio();
     const el = this.renderer.domElement.parentElement ?? document.body;
     const w = el.clientWidth || window.innerWidth;
     const h = el.clientHeight || window.innerHeight;

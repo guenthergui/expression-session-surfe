@@ -24,7 +24,7 @@ export const OUTCOME_TEXT: Record<Outcome, [string, string]> = {
 export function conditionChips(c: Conditions, locationId: string): string {
   const loc = findLocation(locationId);
   return [
-    `🌊 ${c.height.toFixed(2).replace('.', ',')} m`,
+    `Onda ${c.height.toFixed(2).replace('.', ',')} m`,
     `Potência ${c.power}`,
     loc.windAffects ? `Vento ${WIND_LABELS[c.windType]} ${c.windSpeed} km/h` : 'Sem vento',
     `Seção ${c.sectionQuality} · ${sectionLabel(c.sectionQuality)}`,

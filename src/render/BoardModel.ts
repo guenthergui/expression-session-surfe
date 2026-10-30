@@ -1,11 +1,15 @@
 import * as THREE from 'three';
+import { colorOf, type BoardLook, type FinLook } from '../data/cosmetics';
 import { boardMeters } from '../data/equipment';
 import type { Board, FinSetup } from '../core/types';
-import { boardTexture, padTexture, waxTexture, type BoardGraphic } from './textures';
+import { boardArtTexture } from './paint';
+import { padTexture, waxTexture } from './textures';
 
 // Prancha 3D gerada a partir das medidas reais (em metros): outline, rocker,
 // distribuição de espessura, bordas arredondadas, deck abaulado, quilhas e
-// antiderrapante. Eixos locais: +x é o bico, +y sai do deck, +z é a borda do
+// antiderrapante. A aparência (cores, arte, acabamento, perfil das quilhas)
+// só muda materiais e o desenho do contorno da quilha: medidas, posição e
+// ângulos das quilhas vêm do equipamento e não mudam. Eixos locais: +x é o bico, +y sai do deck, +z é a borda do
 // lado dos dedos do surfista.
 
 const RINGS = 72;
@@ -25,17 +29,15 @@ export class BoardModel {
   private body: THREE.Mesh;
   private bodyMat: THREE.MeshPhysicalMaterial;
   private parts: THREE.Mesh[] = [];
+  private finMat: THREE.MeshPhysicalMaterial;
+  private fins: THREE.Mesh[] = [];
+  private finSpecs: { base: number; depth: number }[] = [];
+  private finProfile = '';
 
-  constructor(readonly board: Board, fins: FinSetup, graphic: BoardGraphic, color: number, accent: number) {
+  constructor(readonly board: Board, fins: FinSetup, look: BoardLook, finLook: FinLook) {
     this.shape = boardMeters(board.dims);
-    this.bodyMat = new THREE.MeshPhysicalMaterial({
-      map: boardTexture(graphic, color, accent),
-      roughness: 0.32,
-      clearcoat: 1,
-      clearcoatRoughness: 0.08,
-      metalness: 0,
-      sheen: 0.2,
-    });
+    this.bodyMat = new THREE.MeshPhysicalMaterial({ metalness: 0, sheen: 0.2 });
+    this.finMat = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: 0 });
     this.body = new THREE.Mesh(this.buildBody(), this.bodyMat);
     this.body.castShadow = true;
     this.body.receiveShadow = true;
@@ -43,6 +45,7 @@ export class BoardModel {
     this.buildPad();
     this.buildWax();
     this.buildFins(fins);
+    this.setFinish(look, finLook);
     this.leashPlug.position.set(-this.shape.length / 2 + 0.06, this.deckY(-this.shape.length / 2 + 0.06, 0) + 0.004, 0);
     this.group.add(this.leashPlug);
     this.buildPlug();
@@ -108,9 +111,53 @@ export class BoardModel {
     this.parts.push(cup, bar);
   }
 
-  setFinish(graphic: BoardGraphic, color: number, accent: number) {
-    this.bodyMat.map = boardTexture(graphic, color, accent);
+  /** Aplica a aparência escolhida: cores e arte da prancha, acabamento e visual das quilhas. */
+  setFinish(look: BoardLook, fin: FinLook) {
+    this.bodyMat.map = boardArtTexture({
+      deck: colorOf(look.deck, 0xf3f1ec),
+      bottom: colorOf(look.bottom, 0xf3f1ec),
+      art: look.art,
+      artColor: colorOf(look.artColor, 0x1f5d9e),
+      noseTail: look.noseTail ? colorOf(look.noseTail) : null,
+    });
+    // Brilhante: verniz espelhado. Fosco: lixado, sem verniz.
+    const gloss = look.finish !== 'acab-fosco';
+    this.bodyMat.roughness = gloss ? 0.32 : 0.78;
+    this.bodyMat.clearcoat = gloss ? 1 : 0.05;
+    this.bodyMat.clearcoatRoughness = gloss ? 0.08 : 0.6;
     this.bodyMat.needsUpdate = true;
+
+    if (fin.profile !== this.finProfile) {
+      this.finProfile = fin.profile;
+      this.fins.forEach((m, i) => {
+        m.geometry.dispose();
+        m.geometry = this.finGeometry(this.finSpecs[i].base, this.finSpecs[i].depth, fin.profile);
+      });
+    }
+    // Cor por vértice: base numa cor e ponta na outra (bicolor), ou tudo igual.
+    const c1 = new THREE.Color(colorOf(fin.color, 0x23303b));
+    const c2 = fin.twoTone ? new THREE.Color(colorOf(fin.color2, 0x2fb4d6)) : c1;
+    for (const [i, m] of this.fins.entries()) {
+      const g = m.geometry;
+      const pos = g.attributes.position as THREE.BufferAttribute;
+      const colors = new Float32Array(pos.count * 3);
+      const depth = this.finSpecs[i].depth;
+      const tmp = new THREE.Color();
+      for (let k = 0; k < pos.count; k++) {
+        const t = THREE.MathUtils.clamp(-pos.getY(k) / depth, 0, 1);
+        tmp.copy(t > 0.55 ? c2 : c1);
+        colors.set([tmp.r, tmp.g, tmp.b], k * 3);
+      }
+      g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    }
+    const finGloss = fin.finish !== 'acab-fosco';
+    this.finMat.roughness = finGloss ? 0.22 : 0.7;
+    this.finMat.clearcoat = finGloss ? 0.8 : 0;
+    // Resina cristal: deixa ver o mar através da quilha.
+    this.finMat.transparent = fin.transparent;
+    this.finMat.opacity = fin.transparent ? 0.5 : 1;
+    this.finMat.depthWrite = !fin.transparent;
+    this.finMat.needsUpdate = true;
   }
 
   /** Meia largura (m) na posição u, de 0 (rabeta) a 1 (bico). */
@@ -229,13 +276,15 @@ export class BoardModel {
     this.parts.push(m);
   }
 
-  private finGeometry(base: number, depth: number): THREE.BufferGeometry {
-    // Perfil de quilha com bordo de ataque curvo e ponta inclinada para trás.
+  /** Contorno da quilha. O perfil é só visual: base e profundidade (a função) não mudam. */
+  private finGeometry(base: number, depth: number, profile = 'perfil-classico'): THREE.BufferGeometry {
+    // Inclinação da ponta para trás: clássico, mais inclinado ou quase reto.
+    const rake = profile === 'perfil-inclinado' ? 0.6 : profile === 'perfil-reto' ? 0.08 : 0.35;
     const s = new THREE.Shape();
     s.moveTo(0, 0);
     s.lineTo(base, 0);
-    s.bezierCurveTo(base * 0.55, -depth * 0.35, base * 0.1, -depth * 0.85, -base * 0.35, -depth);
-    s.bezierCurveTo(-base * 0.2, -depth * 0.6, -base * 0.05, -depth * 0.3, 0, 0);
+    s.bezierCurveTo(base * 0.55, -depth * 0.35, base * (0.1 - rake * 0.3), -depth * 0.85, -base * rake, -depth);
+    s.bezierCurveTo(-base * (rake * 0.55), -depth * 0.6, -base * 0.05, -depth * 0.3, 0, 0);
     const g = new THREE.ExtrudeGeometry(s, { depth: 0.006, bevelEnabled: true, bevelThickness: 0.0015, bevelSize: 0.0015, bevelSegments: 2, steps: 1 });
     g.translate(-base * 0.5, 0, -0.003);
     return g;
@@ -243,13 +292,15 @@ export class BoardModel {
 
   private buildFins(setup: FinSetup) {
     const L = this.shape.length;
-    const mat = new THREE.MeshPhysicalMaterial({ color: 0x23303b, roughness: 0.25, clearcoat: 0.8, transmission: 0, metalness: 0 });
+    const mat = this.finMat;
     const add = (fromTail: number, inFromRail: number, side: -1 | 0 | 1, base: number, depth: number, cant: number) => {
       const x = -L / 2 + fromTail;
       const u = x / L + 0.5;
       const z = side === 0 ? 0 : side * (this.halfWidth(u) - inFromRail);
       const bottom = this.rocker(u) - this.thickness(u) * 0.4;
-      const fin = new THREE.Mesh(this.finGeometry(base, depth), mat);
+      const fin = new THREE.Mesh(this.finGeometry(base, depth, this.finProfile), mat);
+      this.fins.push(fin);
+      this.finSpecs.push({ base, depth });
       fin.position.set(x, bottom + 0.002, z);
       // Cant: as laterais inclinam para fora; toe-in: apontam um pouco para o centro.
       fin.rotation.x = side * THREE.MathUtils.degToRad(cant);
@@ -280,5 +331,6 @@ export class BoardModel {
       p.geometry.dispose();
       (p.material as THREE.Material).dispose();
     }
+    this.finMat.dispose();
   }
 }

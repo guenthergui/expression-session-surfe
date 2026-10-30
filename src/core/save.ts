@@ -1,16 +1,19 @@
 import { INITIAL_ATTRIBUTES, MAX_ATTRIBUTE } from '../data/attributes';
-import { COSMETICS, DEFAULT_LOADOUT, type CosmeticSlot, type Loadout } from '../data/cosmetics';
+import { CATALOG, DEFAULT_LOOK, LEGACY_STARTER, cloneLook, migrateLoadout, type LegacyLoadout, type Look } from '../data/cosmetics';
 import { BOARDS, FINS } from '../data/equipment';
 import { LOCATIONS } from '../data/locations';
 import { clampSetup, defaultSetup, type HeatSetup } from './conditions';
 import { MANEUVERS } from './maneuvers';
 import { clamp } from './rng';
+import { sanitizeLook } from './unlocks';
 import { ATTRIBUTE_KEYS, type Attributes, type ManeuverFamily } from './types';
 
-export const SAVE_KEY = 'expression-session-save-v2';
+export const SAVE_KEY = 'expression-session-save-v3';
+/** Versão anterior (aparência por espaços). Lida uma vez e migrada. */
+export const V2_SAVE_KEY = 'expression-session-save-v2';
 /** Chave da versão 2D anterior. Lida uma vez para migrar o progresso. */
 export const LEGACY_SAVE_KEY = 'expression-session-save-v1';
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 
 export const FAMILIES: ManeuverFamily[] = ['aereo', 'rotacao', 'grab', 'combo', 'experimental'];
 export type Quality = 'baixa' | 'media' | 'alta' | 'ultra';
@@ -52,8 +55,9 @@ export interface SaveData {
   unlockedFins: string[];
   unlockedLocations: string[];
   unlockedManeuvers: string[];
+  /** Itens de aparência liberados por conquista, nível ou herdados da versão anterior. */
   unlockedCosmetics: string[];
-  loadout: Loadout;
+  look: Look;
   discoveries: string[];
   records: Records;
   stats: Stats;
@@ -80,8 +84,8 @@ export function defaultSave(): SaveData {
     unlockedFins: FINS.filter((f) => f.unlockLevel <= 1).map((f) => f.id),
     unlockedLocations: LOCATIONS.filter((l) => l.unlockLevel <= 1).map((l) => l.id),
     unlockedManeuvers: MANEUVERS.filter((m) => m.unlockLevel <= 1).map((m) => m.id),
-    unlockedCosmetics: COSMETICS.filter((c) => c.unlockLevel <= 1).map((c) => c.id),
-    loadout: { ...DEFAULT_LOADOUT },
+    unlockedCosmetics: [],
+    look: cloneLook(DEFAULT_LOOK),
     discoveries: [],
     records: { bestHeatScore: 0, bestWaveScore: 0, bestCombo: 0, heatsPlayed: 0, bestExecution: 0 },
     stats: { waves: 0, landed: 0, falls: 0, perfects: 0 },
@@ -108,6 +112,16 @@ function obj(v: unknown): Record<string, unknown> {
   return v && typeof v === 'object' ? (v as Record<string, unknown>) : {};
 }
 
+/** Mantém do equipamento antigo só o que estava liberado naquele salvamento. */
+function legacyEquipped(old: LegacyLoadout, unlocked: unknown): LegacyLoadout {
+  const list = Array.isArray(unlocked) ? unlocked : [];
+  const out: LegacyLoadout = {};
+  for (const [slot, id] of Object.entries(old) as [keyof LegacyLoadout, unknown][]) {
+    if (typeof id === 'string' && (LEGACY_STARTER.includes(id) || list.includes(id))) out[slot] = id;
+  }
+  return out;
+}
+
 /** Valida dados salvos campo a campo. Qualquer coisa inválida volta ao padrão. */
 export function sanitizeSave(raw: unknown): SaveData {
   const d = defaultSave();
@@ -123,15 +137,9 @@ export function sanitizeSave(raw: unknown): SaveData {
   for (const f of FAMILIES) mastery[f] = num(masteryRaw[f], 0, 0, 100);
 
   const unlockedLocations = ids(r.unlockedLocations, LOCATIONS.map((l) => l.id), d.unlockedLocations);
-  const unlockedCosmetics = ids(r.unlockedCosmetics, COSMETICS.map((c) => c.id), d.unlockedCosmetics);
-
-  const loadoutRaw = obj(r.loadout);
-  const loadout = { ...d.loadout };
-  for (const slot of Object.keys(loadout) as CosmeticSlot[]) {
-    const id = loadoutRaw[slot];
-    const item = COSMETICS.find((c) => c.id === id);
-    if (item && item.slot === slot && unlockedCosmetics.includes(item.id)) loadout[slot] = item.id;
-  }
+  // Versão 2: equipamento por espaços. Vira a aparência nova e o que estava equipado continua liberado.
+  const legacy = !r.look && r.loadout && typeof r.loadout === 'object' ? migrateLoadout(legacyEquipped(r.loadout as LegacyLoadout, r.unlockedCosmetics)) : null;
+  const unlockedCosmetics = ids([...(Array.isArray(r.unlockedCosmetics) ? r.unlockedCosmetics : []), ...(legacy?.granted ?? [])], CATALOG.map((c) => c.id), d.unlockedCosmetics);
 
   const setupRaw = obj(r.lastSetup) as Partial<HeatSetup>;
   let lastSetup = d.lastSetup;
@@ -154,7 +162,7 @@ export function sanitizeSave(raw: unknown): SaveData {
   const rec = obj(r.records);
   const st = obj(r.stats);
   const pr = obj(r.prefs);
-  return {
+  const out: SaveData = {
     version: SAVE_VERSION,
     attributes,
     level: int(r.level, 1, 1, 99),
@@ -166,7 +174,7 @@ export function sanitizeSave(raw: unknown): SaveData {
     unlockedLocations,
     unlockedManeuvers: ids(r.unlockedManeuvers, MANEUVERS.map((m) => m.id), d.unlockedManeuvers),
     unlockedCosmetics,
-    loadout,
+    look: d.look,
     discoveries: ids(r.discoveries, MANEUVERS.filter((m) => m.experimental).map((m) => m.id), []),
     records: {
       bestHeatScore: int(rec.bestHeatScore, 0, 0, 1e9),
@@ -188,12 +196,14 @@ export function sanitizeSave(raw: unknown): SaveData {
     },
     lastSetup,
   };
+  out.look = sanitizeLook(legacy ? legacy.look : r.look, out);
+  return out;
 }
 
 export function loadSave(store: KeyValueStore | null): SaveData {
   if (!store) return defaultSave();
   try {
-    const text = store.getItem(SAVE_KEY) ?? store.getItem(LEGACY_SAVE_KEY);
+    const text = store.getItem(SAVE_KEY) ?? store.getItem(V2_SAVE_KEY) ?? store.getItem(LEGACY_SAVE_KEY);
     return text ? sanitizeSave(JSON.parse(text)) : defaultSave();
   } catch {
     return defaultSave();
@@ -213,6 +223,7 @@ export function clearSave(store: KeyValueStore | null): void {
   if (!store) return;
   try {
     store.removeItem(SAVE_KEY);
+    store.removeItem(V2_SAVE_KEY);
     store.removeItem(LEGACY_SAVE_KEY);
   } catch {
     // Ignora: o progresso em memória já foi reiniciado.

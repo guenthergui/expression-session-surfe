@@ -1,6 +1,7 @@
 import * as THREE from 'three';
-import type { Cosmetic } from '../data/cosmetics';
-import { hairTexture, neopreneBump, skinTexture, tattooTexture } from './textures';
+import { GARMENTS, REGION_PLACE, activeGarments, colorOf, findItem, type BodyRole, type Look, type TattooRegion } from '../data/cosmetics';
+import { drawPattern, drawTattoo } from './paint';
+import { hairTexture, skinTexture } from './textures';
 
 // Surfista provisório, articulado e gerado por código, com 1,78 m de altura.
 // Não é uma malha contínua com skinning: cada segmento é uma peça rígida presa
@@ -15,13 +16,8 @@ import { hairTexture, neopreneBump, skinTexture, tattooTexture } from './texture
 // Para trocar por um modelo GLB com esqueleto, basta implementar a mesma
 // interface SurferAvatar mapeando as juntas do rig.
 
-export interface SurferLook {
-  suit: Cosmetic;
-  hair: Cosmetic;
-  hairColor: Cosmetic;
-  tattoo: Cosmetic;
-  accessory: Cosmetic;
-}
+/** Aparência completa do personagem (ver data/cosmetics.ts). */
+export type SurferLook = Look;
 
 /** Pose em coordenadas do mundo, calculada pelo animador a cada quadro. */
 export interface WorldPose {
@@ -72,7 +68,46 @@ export const BODY = {
 /** Distância mínima entre raiz e ponta: limita a flexão de joelhos (~145°) e cotovelos (~150°). */
 const MIN_REACH = { leg: 0.24, arm: 0.15 };
 
-type Role = 'hips' | 'abdomen' | 'chest' | 'upperArm' | 'forearm' | 'thigh' | 'shin';
+type Role = BodyRole;
+
+/** Resolução das texturas pintadas de cada parte do corpo (pele, roupa e tatuagens). */
+const PAINT_SIZE = 512;
+
+/**
+ * Parte do corpo com textura própria. A roupa e as tatuagens são pintadas na
+ * mesma textura da pele, usando as coordenadas do torno: u dá a volta (0 frente,
+ * 0,25 lado +x, 0,5 costas, 0,75 lado -x) e v corre ao longo do comprimento.
+ */
+interface Painted {
+  mesh: THREE.Mesh;
+  role: Role;
+  side: 'left' | 'right' | 'center';
+  /** Torso ou membro: em ambos v vai de baixo (0) para cima (1). */
+  torso: boolean;
+  /** Comprimento coberto pela textura, em metros. */
+  len: number;
+  /** Circunferência (m) na posição t ao longo do segmento. */
+  circ: (t: number) => number;
+  /** u do lado de fora do corpo (para tatuagens e faixas laterais). */
+  outerU: number;
+  canvas: HTMLCanvasElement;
+  rough: HTMLCanvasElement;
+  mat: THREE.MeshPhysicalMaterial;
+  seed: number;
+}
+
+/**
+ * v da textura de um membro para a fração t do comprimento, a partir do topo
+ * (o torno tem 4 pontos de tampa em cada ponta e v cresce de baixo para cima).
+ */
+export function limbV(t: number): number {
+  return (19 - 16 * THREE.MathUtils.clamp(t, 0, 1)) / 23;
+}
+
+const ROUGH: Record<'pele' | 'neoprene' | 'lycra' | 'tecido', number> = { pele: 0.55, neoprene: 0.62, lycra: 0.45, tecido: 0.86 };
+
+/** Onde cada região de tatuagem fica na volta do segmento (u). */
+const REGION_U: Partial<Record<TattooRegion, number>> = { peito: 0, costas: 0.5, panturrilhaEsq: 0.5, panturrilhaDir: 0.5 };
 
 /** Membro afinado e arredondado (torno em volta do eixo Y, crescendo para -Y). */
 function limbGeometry(len: number, rTop: number, rBottom: number, bulge = 0, bulgeAt = 0.35, radial = 20): THREE.BufferGeometry {
@@ -92,6 +127,8 @@ function limbGeometry(len: number, rTop: number, rBottom: number, bulge = 0, bul
     const a = (i / 3) * (Math.PI / 2);
     pts.push(new THREE.Vector2(Math.max(0.0001, rBottom * Math.cos(a)), -len - rBottom * 0.55 * Math.sin(a)));
   }
+  // O torno espera o perfil de baixo para cima; assim as faces ficam viradas para fora.
+  pts.reverse();
   const g = new THREE.LatheGeometry(pts, radial);
   g.computeVertexNormals();
   return g;
@@ -102,6 +139,19 @@ function torsoGeometry(profile: [number, number][], scaleX: number, scaleZ: numb
   g.scale(scaleX, 1, scaleZ);
   g.computeVertexNormals();
   return g;
+}
+
+/** Medidas de um membro para converter metros em pixels da textura. */
+function limbInfo(len: number, rTop: number, rBottom: number, bulge = 0, bulgeAt = 0.35) {
+  return {
+    // A parte reta ocupa 16/23 do v; o resto são as tampas.
+    len: (len * 23) / 16,
+    circ: (t: number) => 2 * Math.PI * (rTop + (rBottom - rTop) * t + bulge * Math.exp(-Math.pow((t - bulgeAt) / 0.22, 2))),
+  };
+}
+
+function ellipseCirc(a: number, b: number): number {
+  return Math.PI * (3 * (a + b) - Math.sqrt((3 * a + b) * (a + 3 * b)));
 }
 
 const tmpM = new THREE.Matrix4();
@@ -200,17 +250,25 @@ export class SurferRig implements SurferAvatar {
   private fingersB: Finger[] = [];
   private toes: THREE.Object3D[] = [];
   private skin: THREE.MeshPhysicalMaterial;
-  private suit: THREE.MeshPhysicalMaterial;
+  /** Materiais lisos das peças de roupa, para as tampas das articulações. */
+  private garmentMats: THREE.MeshPhysicalMaterial[] = [];
   private accent: THREE.MeshPhysicalMaterial;
   private hairMat: THREE.MeshStandardMaterial;
-  private segments: { mesh: THREE.Mesh; role: Role }[] = [];
+  private stubbleMat: THREE.MeshStandardMaterial;
+  private irisMat: THREE.MeshStandardMaterial;
+  private lipMat: THREE.MeshPhysicalMaterial;
+  /** Tampas esféricas das articulações; lower = joelho ou cotovelo. */
+  private segments: { mesh: THREE.Mesh; role: Role; lower: boolean }[] = [];
+  private painted: Painted[] = [];
   private hairStyles = new Map<string, THREE.Object3D>();
   private hairStrands = new Map<string, HairStrand[]>();
+  private browStyles = new Map<string, THREE.Object3D>();
+  private beardStyles = new Map<string, THREE.Object3D>();
   private activeHair = 'curto';
-  private tattoos = new Map<string, THREE.Mesh>();
   private accessories = new Map<string, THREE.Object3D>();
   private suitBands: THREE.Mesh[] = [];
-  private suitStyle = 'longo';
+  /** Tecido da peça que cobre o torso (muda o brilho quando molhado). */
+  private torsoFabric: 'pele' | 'neoprene' | 'lycra' | 'tecido' = 'neoprene';
   private lastHeadPos = new THREE.Vector3();
   private lastHeadVel = new THREE.Vector3();
   private hasHeadPos = false;
@@ -227,18 +285,14 @@ export class SurferRig implements SurferAvatar {
       clearcoat: 0,
       clearcoatRoughness: 0.35,
     });
-    this.suit = new THREE.MeshPhysicalMaterial({
-      color: 0x16191d,
-      roughness: 0.62,
-      bumpMap: neopreneBump(),
-      bumpScale: 0.6,
-      sheen: 0.4,
-      sheenColor: new THREE.Color(0x6c7a88),
-      clearcoat: 0.1,
-      clearcoatRoughness: 0.4,
-    });
+    for (let i = 0; i < 2; i++) {
+      this.garmentMats.push(new THREE.MeshPhysicalMaterial({ color: 0x16191d, roughness: 0.62, sheen: 0.4, sheenColor: new THREE.Color(0x6c7a88), clearcoat: 0.1, clearcoatRoughness: 0.4 }));
+    }
     this.accent = new THREE.MeshPhysicalMaterial({ color: 0x2fb4d6, roughness: 0.5, clearcoat: 0.2 });
     this.hairMat = new THREE.MeshStandardMaterial({ color: 0x3b2618, map: hairTexture(), bumpMap: hairTexture(), bumpScale: 0.8, roughness: 0.68 });
+    this.stubbleMat = new THREE.MeshStandardMaterial({ color: 0x3b2618, transparent: true, opacity: 0.38, roughness: 0.9, depthWrite: false });
+    this.irisMat = new THREE.MeshStandardMaterial({ color: 0x4a3322, roughness: 0.25 });
+    this.lipMat = new THREE.MeshPhysicalMaterial({ color: 0xa5574a, roughness: 0.4, clearcoat: 0.3 });
 
     this.root.add(this.pelvis);
     this.pelvis.add(this.spine);
@@ -266,29 +320,55 @@ export class SurferRig implements SurferAvatar {
     });
   }
 
-  private seg(geo: THREE.BufferGeometry, role: Role, parent: THREE.Object3D, mat = this.suit): THREE.Mesh {
+  /** Parte do corpo com textura pintada própria (pele + roupa + tatuagens). */
+  private seg(geo: THREE.BufferGeometry, role: Role, parent: THREE.Object3D, info: Pick<Painted, 'side' | 'torso' | 'len' | 'circ' | 'outerU'>): THREE.Mesh {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = PAINT_SIZE;
+    const rough = document.createElement('canvas');
+    rough.width = rough.height = PAINT_SIZE;
+    const map = new THREE.CanvasTexture(canvas);
+    map.colorSpace = THREE.SRGBColorSpace;
+    map.flipY = false;
+    map.wrapS = THREE.RepeatWrapping;
+    map.anisotropy = 4;
+    const roughnessMap = new THREE.CanvasTexture(rough);
+    roughnessMap.flipY = false;
+    roughnessMap.wrapS = THREE.RepeatWrapping;
+    const mat = new THREE.MeshPhysicalMaterial({
+      map,
+      roughnessMap,
+      roughness: 1,
+      // Pouco brilho aveludado: a mesma textura tem pele e roupa escura.
+      sheen: 0.08,
+      sheenColor: new THREE.Color(0xff9b7a),
+      sheenRoughness: 0.7,
+      clearcoatRoughness: 0.35,
+    });
     const m = new THREE.Mesh(geo, mat);
     parent.add(m);
-    this.segments.push({ mesh: m, role });
+    this.painted.push({ mesh: m, role, canvas, rough, mat, seed: this.painted.length * 7919 + 13, ...info });
     return m;
   }
 
-  /** Tampa esférica numa articulação, com o material do segmento indicado. */
-  private cap(parent: THREE.Object3D, radius: number, role: Role, scale?: [number, number, number]) {
-    const m = this.seg(new THREE.SphereGeometry(radius, 18, 14), role, parent);
+  /** Tampa esférica numa articulação: fica com a cor da roupa quando ela cobre aquele ponto. */
+  private cap(parent: THREE.Object3D, radius: number, role: Role, scale?: [number, number, number], lower = false) {
+    const m = new THREE.Mesh(new THREE.SphereGeometry(radius, 18, 14), this.skin);
+    parent.add(m);
+    this.segments.push({ mesh: m, role, lower });
     if (scale) m.scale.set(...scale);
     return m;
   }
 
   private buildTorso() {
     // Quadril: do alto das coxas até a cintura, com volume de glúteos atrás.
-    this.seg(torsoGeometry([[0.0001, -0.11], [0.11, -0.1], [0.16, -0.05], [0.168, 0.02], [0.152, 0.1], [0.0001, 0.12]], 1, 0.7), 'hips', this.pelvis);
+    const torso = (height: number, r: number, sx: number, sz: number) => ({ side: 'center' as const, torso: true, len: height, circ: () => ellipseCirc(r * sx, r * sz), outerU: 0.25 });
+    this.seg(torsoGeometry([[0.0001, -0.11], [0.11, -0.1], [0.16, -0.05], [0.168, 0.02], [0.152, 0.1], [0.0001, 0.12]], 1, 0.7), 'hips', this.pelvis, torso(0.3, 0.16, 1, 0.7));
     const glute = this.cap(this.pelvis, 0.085, 'hips', [1.5, 0.9, 0.9]);
     glute.position.set(0, -0.04, -0.04);
     // Abdômen, mais estreito na cintura
-    this.seg(torsoGeometry([[0.0001, -0.03], [0.148, -0.01], [0.138, 0.08], [0.146, 0.18], [0.155, 0.25], [0.0001, 0.29]], 1, 0.66), 'abdomen', this.spine);
+    this.seg(torsoGeometry([[0.0001, -0.03], [0.148, -0.01], [0.138, 0.08], [0.146, 0.18], [0.155, 0.25], [0.0001, 0.29]], 1, 0.66), 'abdomen', this.spine, torso(0.4, 0.147, 1, 0.66));
     // Peito, dorsais e ombros
-    this.seg(torsoGeometry([[0.0001, -0.03], [0.158, -0.01], [0.178, 0.08], [0.18, 0.15], [0.15, 0.2], [0.1, 0.225], [0.05, 0.24], [0.0001, 0.245]], 1.13, 0.62), 'chest', this.chest);
+    this.seg(torsoGeometry([[0.0001, -0.03], [0.158, -0.01], [0.178, 0.08], [0.18, 0.15], [0.15, 0.2], [0.1, 0.225], [0.05, 0.24], [0.0001, 0.245]], 1.13, 0.62), 'chest', this.chest, torso(0.42, 0.17, 1.13, 0.62));
     // Trapézio ligando pescoço e ombro, achatado para não formar bolhas
     for (const s of [-1, 1]) {
       const trap = this.cap(this.chest, 0.05, 'chest', [1.7, 0.45, 0.85]);
@@ -331,7 +411,6 @@ export class SurferRig implements SurferAvatar {
     tip.position.set(0, 0.033, 0.104);
     h.add(tip);
     const eyeWhiteMat = new THREE.MeshPhysicalMaterial({ color: 0xf2efe9, roughness: 0.15, clearcoat: 1, clearcoatRoughness: 0.05 });
-    const irisMat = new THREE.MeshStandardMaterial({ color: 0x4a3322, roughness: 0.25 });
     const pupilMat = new THREE.MeshStandardMaterial({ color: 0x0a0806, roughness: 0.2 });
     for (const s of [-1, 1]) {
       // Orelha: concha achatada com lóbulo
@@ -349,7 +428,7 @@ export class SurferRig implements SurferAvatar {
       const eye = new THREE.Group();
       eye.position.set(s * 0.034, 0.066, 0.084);
       const white = new THREE.Mesh(new THREE.SphereGeometry(0.0125, 16, 12), eyeWhiteMat);
-      const iris = new THREE.Mesh(new THREE.SphereGeometry(0.0062, 14, 10), irisMat);
+      const iris = new THREE.Mesh(new THREE.SphereGeometry(0.0062, 14, 10), this.irisMat);
       iris.position.z = 0.009;
       iris.scale.z = 0.5;
       const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.0028, 10, 8), pupilMat);
@@ -361,14 +440,9 @@ export class SurferRig implements SurferAvatar {
       lid.position.copy(eye.position);
       lid.rotation.x = 0.5;
       h.add(lid);
-      // Sobrancelha
-      const brow = new THREE.Mesh(new THREE.CapsuleGeometry(0.0035, 0.024, 3, 6), this.hairMat);
-      brow.rotation.z = Math.PI / 2 + s * 0.12;
-      brow.position.set(s * 0.036, 0.086, 0.096);
-      h.add(brow);
     }
     // Lábios (boca) superior e inferior
-    const lipMat = new THREE.MeshPhysicalMaterial({ color: 0xa5574a, roughness: 0.4, clearcoat: 0.3 });
+    const lipMat = this.lipMat;
     const upper = new THREE.Mesh(new THREE.SphereGeometry(0.017, 14, 8), lipMat);
     upper.scale.set(1.45, 0.32, 0.55);
     upper.position.set(0, 0.006, 0.094);
@@ -377,49 +451,183 @@ export class SurferRig implements SurferAvatar {
     lower.position.set(0, -0.006, 0.092);
     h.add(upper, lower);
 
+    this.buildBrows();
+    this.buildBeards();
     this.buildHair();
   }
 
+  /** Sobrancelhas: cada estilo é uma geometria própria, na cor do cabelo. */
+  private buildBrows() {
+    const h = this.head;
+    const styles: [string, () => THREE.Mesh][] = [
+      ['sobr-natural', () => new THREE.Mesh(new THREE.CapsuleGeometry(0.0035, 0.024, 3, 6), this.hairMat)],
+      ['sobr-fina', () => new THREE.Mesh(new THREE.CapsuleGeometry(0.0021, 0.025, 3, 6), this.hairMat)],
+      ['sobr-grossa', () => new THREE.Mesh(new THREE.CapsuleGeometry(0.0052, 0.026, 3, 6), this.hairMat)],
+      ['sobr-reta', () => new THREE.Mesh(new THREE.CapsuleGeometry(0.004, 0.026, 3, 6), this.hairMat)],
+      ['sobr-arqueada', () => new THREE.Mesh(new THREE.TorusGeometry(0.018, 0.0032, 6, 14, Math.PI * 0.62), this.hairMat)],
+    ];
+    for (const [id, make] of styles) {
+      const g = new THREE.Group();
+      for (const s of [-1, 1] as const) {
+        const m = make();
+        if (id === 'sobr-arqueada') {
+          // Arco com a parte mais alta no meio da sobrancelha.
+          m.rotation.z = Math.PI * 0.19;
+          m.position.set(s * 0.036, 0.072, 0.094);
+          m.scale.set(1, 0.8, 1);
+        } else {
+          m.rotation.z = Math.PI / 2 + (id === 'sobr-reta' ? 0 : s * 0.12);
+          m.position.set(s * 0.036, 0.086, 0.096);
+        }
+        g.add(m);
+      }
+      g.visible = false;
+      h.add(g);
+      this.browStyles.set(id, g);
+    }
+  }
+
+  /** Barba e bigode: cascas sobre a mandíbula e peças sobre a boca e o queixo. */
+  private buildBeards() {
+    const h = this.head;
+    // Casca da metade de baixo e da frente da mandíbula, logo abaixo da boca.
+    const shell = (scale: number, mat: THREE.Material, drop = 0) => {
+      const g = new THREE.SphereGeometry(0.075, 28, 14, -0.1, Math.PI + 0.2, Math.PI * 0.57, Math.PI * 0.43);
+      const m = new THREE.Mesh(g, mat);
+      m.scale.set(0.92 * scale, 0.78 * scale + drop, 1 * scale);
+      m.position.set(0, -0.005, 0.025);
+      return m;
+    };
+    const mustache = () => {
+      const m = new THREE.Mesh(new THREE.CapsuleGeometry(0.0055, 0.03, 3, 8), this.hairMat);
+      m.rotation.z = Math.PI / 2;
+      m.scale.set(1, 1, 0.6);
+      m.position.set(0, 0.0175, 0.097);
+      return m;
+    };
+    const chin = (size: number) => {
+      const m = new THREE.Mesh(new THREE.SphereGeometry(size, 14, 10), this.hairMat);
+      m.scale.set(1.1, 1.25, 0.75);
+      m.position.set(0, -0.034, 0.078);
+      return m;
+    };
+    const styles: [string, () => THREE.Object3D[]][] = [
+      ['barba-nenhuma', () => []],
+      ['barba-rala', () => [shell(1.012, this.stubbleMat)]],
+      ['barba-bigode', () => [mustache()]],
+      ['barba-cavanhaque', () => [mustache(), chin(0.02)]],
+      ['barba-curta', () => [shell(1.05, this.hairMat), mustache()]],
+      ['barba-cheia', () => [shell(1.12, this.hairMat, 0.08), mustache(), chin(0.027)]],
+    ];
+    for (const [id, make] of styles) {
+      const g = new THREE.Group();
+      const parts = make();
+      if (parts.length) g.add(...parts);
+      g.visible = false;
+      h.add(g);
+      this.beardStyles.set(id, g);
+    }
+  }
+
   /**
-   * Penteados: uma calota de couro cabeludo mais mechas com mola. As mechas
-   * respondem à aceleração da cabeça e ao vento (movimento secundário).
+   * Penteados: cada um é uma geometria própria (couro cabeludo com relevo,
+   * cachos, volume, mechas). As mechas são molas que respondem à aceleração da
+   * cabeça e ao vento (movimento secundário).
    */
   private buildHair() {
     const h = this.head;
-    const scalp = (scale: number, cut = 0.58, messy = 0.004) => {
-      const g = new THREE.SphereGeometry(0.104 * scale, 48, 28, 0, Math.PI * 2, 0, Math.PI * cut);
+    // Base comum: mesma posição e inclinação do couro cabeludo, para a linha do cabelo ficar na testa.
+    const frame = () => {
+      const f = new THREE.Group();
+      f.position.set(0, 0.078, -0.016);
+      f.rotation.x = -0.82;
+      f.scale.set(0.93, 1.12, 1.04);
+      return f;
+    };
+    const scalpGeo = (radius: number, cut: number, messy: number, freq = 1) => {
+      const g = new THREE.SphereGeometry(radius, 48, 28, 0, Math.PI * 2, 0, Math.PI * cut);
       // Relevo irregular de tufos: desloca os vértices para fora com ruído suave.
       const p = g.attributes.position as THREE.BufferAttribute;
       const v = new THREE.Vector3();
       for (let i = 0; i < p.count; i++) {
         v.fromBufferAttribute(p, i);
-        const n = Math.sin(v.x * 90) * Math.cos(v.z * 80) + Math.sin((v.x + v.z) * 140) * 0.5;
-        v.multiplyScalar(1 + (messy * n) / 0.104);
+        const n = Math.sin(v.x * 90 * freq) * Math.cos(v.z * 80 * freq) + Math.sin((v.x + v.z) * 140 * freq) * 0.5;
+        v.multiplyScalar(1 + (messy * n) / radius);
         p.setXYZ(i, v.x, v.y, v.z);
       }
       g.computeVertexNormals();
-      const m = new THREE.Mesh(g, this.hairMat);
-      m.scale.set(0.93, 1.12, 1.04);
-      m.position.set(0, 0.078, -0.016);
-      // Inclina para trás para a linha do cabelo ficar na testa, acima das sobrancelhas.
-      m.rotation.x = -0.82;
-      return m;
+      return g;
     };
-    const strand = (group: THREE.Group, list: HairStrand[], pos: [number, number, number], rot: [number, number, number], len: number, r: number, stiffness: number) => {
+    const scalp = (scale: number, cut = 0.58, messy = 0.004) => {
+      const f = frame();
+      f.add(new THREE.Mesh(scalpGeo(0.104 * scale, cut, messy), this.hairMat));
+      return f;
+    };
+    /** Coloca uma peça na superfície da calota: theta a partir do topo, phi em volta (0 = frente). */
+    const onScalp = (f: THREE.Object3D, radius: number, theta: number, phi: number, mesh: THREE.Object3D) => {
+      mesh.position.set(Math.sin(theta) * Math.sin(phi) * radius, Math.cos(theta) * radius, Math.sin(theta) * Math.cos(phi) * radius);
+      f.add(mesh);
+    };
+    const strand = (group: THREE.Group, list: HairStrand[], pos: [number, number, number], rot: [number, number, number], len: number, r: number, stiffness: number, taper = 0.25, flat = 0.6) => {
       const pivot = new THREE.Object3D();
       pivot.position.set(...pos);
       pivot.rotation.set(...rot);
-      const m = new THREE.Mesh(limbGeometry(len, r, r * 0.25, r * 0.15, 0.3, 10), this.hairMat);
-      m.scale.set(1.3, 1, 0.6);
+      const m = new THREE.Mesh(limbGeometry(len, r, r * taper, r * 0.15, 0.3, 10), this.hairMat);
+      m.scale.set(1.3, 1, flat);
       pivot.add(m);
       group.add(pivot);
       list.push({ pivot, base: pivot.rotation.clone(), angle: new THREE.Vector2(), vel: new THREE.Vector2(), stiffness });
     };
+    const curlGeo = new THREE.IcosahedronGeometry(1, 1);
+    const curl = (r: number) => {
+      const m = new THREE.Mesh(curlGeo, this.hairMat);
+      m.scale.setScalar(r);
+      return m;
+    };
+    // Distribuição uniforme na calota (espiral de Fibonacci).
+    const spiral = (f: THREE.Object3D, n: number, radius: number, cut: number, size: (i: number) => number) => {
+      for (let i = 0; i < n; i++) {
+        const theta = Math.acos(1 - ((i + 0.5) / n) * (1 - Math.cos(Math.PI * cut)));
+        onScalp(f, radius, theta, i * 2.39996, curl(size(i)));
+      }
+    };
 
     const styles: [string, (g: THREE.Group, l: HairStrand[]) => void][] = [
-      ['curto', (g, l) => {
-        // Cabelo curto: volume despenteado no próprio couro cabeludo, sem mechas soltas.
+      ['raspado', (g) => {
+        g.add(scalp(1.004, 0.6, 0.0015));
+      }],
+      ['curto', (g) => {
+        // Volume despenteado no próprio couro cabeludo, sem mechas soltas.
         g.add(scalp(1.06, 0.56, 0.012));
+      }],
+      ['topete', (g) => {
+        g.add(scalp(1.04, 0.56, 0.007));
+        // Volume penteado para cima e para trás, na frente.
+        const quiff = new THREE.Mesh(scalpGeo(0.06, 0.6, 0.006, 1.6), this.hairMat);
+        quiff.scale.set(1.35, 0.75, 1.05);
+        quiff.position.set(0, 0.145, 0.045);
+        quiff.rotation.x = 0.35;
+        g.add(quiff);
+      }],
+      ['cacheado', (g) => {
+        const f = scalp(1.05, 0.58, 0.004);
+        spiral(f, 70, 0.108, 0.56, (i) => 0.017 + ((i * 37) % 7) * 0.0012);
+        g.add(f);
+      }],
+      ['blackpower', (g) => {
+        const f = frame();
+        const big = new THREE.Mesh(scalpGeo(0.15, 0.63, 0.008, 1.4), this.hairMat);
+        big.position.y = -0.02;
+        f.add(big);
+        spiral(f, 90, 0.13, 0.6, () => 0.026);
+        g.add(f);
+      }],
+      ['medio', (g, l) => {
+        g.add(scalp(1.06, 0.6, 0.006));
+        for (let i = 0; i < 9; i++) {
+          const a = (i / 8 - 0.5) * 2.4;
+          strand(g, l, [Math.sin(a) * 0.085, 0.095, Math.cos(a) * -0.068], [0.22 + Math.abs(a) * 0.05, a * 0.2, -Math.sin(a) * 0.3], 0.12 + (1 - Math.abs(a) / 1.2) * 0.03, 0.026, 60);
+        }
       }],
       ['longo', (g, l) => {
         g.add(scalp(1.06, 0.62));
@@ -428,6 +636,14 @@ export class SurferRig implements SurferAvatar {
           const a = (i / 10 - 0.5) * 2.6;
           strand(g, l, [Math.sin(a) * 0.085, 0.1, Math.cos(a) * -0.07], [0.25 + Math.abs(a) * 0.05, a * 0.2, -Math.sin(a) * 0.25], 0.2 + (1 - Math.abs(a) / 1.3) * 0.06, 0.022, 45);
         }
+      }],
+      ['rabo', (g, l) => {
+        g.add(scalp(1.03, 0.6, 0.003));
+        const tie = new THREE.Mesh(new THREE.TorusGeometry(0.016, 0.005, 6, 14), this.accent);
+        tie.position.set(0, 0.105, -0.108);
+        tie.rotation.x = 0.9;
+        g.add(tie);
+        strand(g, l, [0, 0.1, -0.115], [0.5, 0, 0], 0.26, 0.024, 38, 0.3, 0.9);
       }],
       ['coque', (g, l) => {
         g.add(scalp(1.03));
@@ -438,9 +654,29 @@ export class SurferRig implements SurferAvatar {
         strand(g, l, [0.075, 0.07, 0.03], [0.3, 0, 0.2], 0.06, 0.009, 90);
         strand(g, l, [-0.075, 0.07, 0.03], [0.3, 0, -0.2], 0.06, 0.009, 90);
       }],
-      ['raspado', (g) => {
-        g.add(scalp(1.005, 0.6));
+      ['dreads', (g, l) => {
+        g.add(scalp(1.04, 0.6, 0.004));
+        for (let i = 0; i < 20; i++) {
+          const a = (i / 19 - 0.5) * 3.4;
+          const front = Math.abs(a) > 1.45;
+          strand(g, l, [Math.sin(a) * 0.09, front ? 0.09 : 0.1, Math.cos(a) * -0.075], [0.2 + Math.abs(a) * 0.04, a * 0.15, -Math.sin(a) * 0.3], front ? 0.14 : 0.22 + ((i * 13) % 5) * 0.01, 0.0105, 50, 0.85, 1);
+        }
       }],
+      ['moicano', (g) => {
+        g.add(scalp(1.002, 0.6, 0.0008));
+        const f = frame();
+        // Crista do alto da testa até a nuca.
+        for (let i = 0; i < 9; i++) {
+          const a = Math.PI * (0.5 - (i / 8) * 0.95);
+          const m = new THREE.Mesh(new THREE.SphereGeometry(0.03, 12, 10), this.hairMat);
+          m.scale.set(0.38, 1.3 - Math.abs(i - 3) * 0.08, 0.9);
+          m.position.set(0, Math.cos(a) * 0.11, Math.sin(a) * 0.11);
+          m.rotation.x = a;
+          f.add(m);
+        }
+        g.add(f);
+      }],
+      ['careca', () => {}],
     ];
     for (const [id, build] of styles) {
       const g = new THREE.Group();
@@ -454,29 +690,22 @@ export class SurferRig implements SurferAvatar {
   }
 
   private buildLeg(side: 1 | -1): Limb {
+    const info = (len: number, rTop: number, rBottom: number, bulge: number, at: number) => ({ side: side === 1 ? 'left' as const : 'right' as const, torso: false, outerU: side === 1 ? 0.25 : 0.75, ...limbInfo(len, rTop, rBottom, bulge, at) });
     const root = new THREE.Object3D();
     root.position.set(side * BODY.hipHalfWidth, -0.06, 0);
     this.pelvis.add(root);
     this.cap(root, 0.088, 'thigh');
-    this.seg(limbGeometry(BODY.thigh, 0.088, 0.056, 0.016, 0.3), 'thigh', root);
+    this.seg(limbGeometry(BODY.thigh, 0.088, 0.056, 0.016, 0.3), 'thigh', root, info(BODY.thigh, 0.088, 0.056, 0.016, 0.3));
     const mid = new THREE.Object3D();
     mid.position.y = -BODY.thigh;
     root.add(mid);
     // Joelho e canela (a panturrilha vem do volume do próprio torno)
-    this.cap(mid, 0.054, 'shin');
-    this.seg(limbGeometry(BODY.shin, 0.055, 0.035, 0.012, 0.22), 'shin', mid);
+    this.cap(mid, 0.054, 'shin', undefined, true);
+    this.seg(limbGeometry(BODY.shin, 0.055, 0.035, 0.012, 0.22), 'shin', mid, info(BODY.shin, 0.055, 0.035, 0.012, 0.22));
     const end = new THREE.Object3D();
     end.position.y = -BODY.shin;
     mid.add(end);
     this.buildFoot(end);
-    // Tatuagem de ondas na panturrilha (só aparece com a perna descoberta)
-    if (side === 1) {
-      const tat = new THREE.Mesh(limbGeometry(0.12, 0.0505, 0.046), new THREE.MeshStandardMaterial({ map: tattooTexture('ondas'), transparent: true, roughness: 0.5, depthWrite: false }));
-      tat.position.y = -0.1;
-      tat.visible = false;
-      mid.add(tat);
-      this.tattoos.set('ondas', tat);
-    }
     return { root, mid, end, l1: BODY.thigh, l2: BODY.shin, minReach: MIN_REACH.leg };
   }
 
@@ -517,28 +746,22 @@ export class SurferRig implements SurferAvatar {
   }
 
   private buildArm(side: 1 | -1, fingers: Finger[]): Limb {
+    const info = (len: number, rTop: number, rBottom: number, bulge: number, at: number) => ({ side: side === 1 ? 'left' as const : 'right' as const, torso: false, outerU: side === 1 ? 0.75 : 0.25, ...limbInfo(len, rTop, rBottom, bulge, at) });
     const root = new THREE.Object3D();
     root.position.set(side * BODY.shoulderHalfWidth, 0.19, -0.005);
     this.chest.add(root);
     // Deltoide arredondando o ombro
     this.cap(root, 0.046, 'upperArm', [1, 0.85, 0.92]).position.y = -0.012;
-    this.seg(limbGeometry(BODY.upperArm, 0.052, 0.038, 0.012, 0.35), 'upperArm', root);
+    this.seg(limbGeometry(BODY.upperArm, 0.052, 0.038, 0.012, 0.35), 'upperArm', root, info(BODY.upperArm, 0.052, 0.038, 0.012, 0.35));
     const mid = new THREE.Object3D();
     mid.position.y = -BODY.upperArm;
     root.add(mid);
-    this.cap(mid, 0.035, 'forearm');
-    this.seg(limbGeometry(BODY.forearm, 0.041, 0.026, 0.01, 0.2), 'forearm', mid);
+    this.cap(mid, 0.035, 'forearm', undefined, true);
+    this.seg(limbGeometry(BODY.forearm, 0.041, 0.026, 0.01, 0.2), 'forearm', mid, info(BODY.forearm, 0.041, 0.026, 0.01, 0.2));
     const end = new THREE.Object3D();
     end.position.y = -BODY.forearm;
     mid.add(end);
     this.buildHand(end, side, fingers);
-    if (side === 1) {
-      const tat = new THREE.Mesh(limbGeometry(0.1, 0.039, 0.033), new THREE.MeshStandardMaterial({ map: tattooTexture('tribal'), transparent: true, roughness: 0.5, depthWrite: false }));
-      tat.position.y = -0.08;
-      tat.visible = false;
-      mid.add(tat);
-      this.tattoos.set('tribal', tat);
-    }
     return { root, mid, end, l1: BODY.upperArm, l2: BODY.forearm, minReach: MIN_REACH.arm };
   }
 
@@ -611,7 +834,7 @@ export class SurferRig implements SurferAvatar {
     colar.position.set(0, 0.235, 0.01);
     colar.visible = false;
     this.chest.add(colar);
-    this.accessories.set('colar', colar);
+    this.accessories.set('acess-colar', colar);
 
     const relogio = new THREE.Mesh(new THREE.CylinderGeometry(0.031, 0.031, 0.03, 20, 1, true), new THREE.MeshPhysicalMaterial({ color: 0x111418, roughness: 0.4, clearcoat: 0.8, side: THREE.DoubleSide }));
     const face = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.008, 20), new THREE.MeshPhysicalMaterial({ color: 0xf0b429, metalness: 0.6, roughness: 0.25 }));
@@ -621,7 +844,37 @@ export class SurferRig implements SurferAvatar {
     relogio.position.y = -BODY.forearm + 0.02;
     relogio.visible = false;
     this.armB.mid.add(relogio);
-    this.accessories.set('relogio', relogio);
+    this.accessories.set('acess-relogio', relogio);
+
+    // Pulseiras de corda no pulso esquerdo
+    const pulseira = new THREE.Group();
+    for (const [i, color] of [0x8a5a2e, 0x2fb4d6, 0xe8604c].entries()) {
+      const band = new THREE.Mesh(new THREE.TorusGeometry(0.029 - i * 0.0008, 0.0032, 6, 20), new THREE.MeshStandardMaterial({ color, roughness: 0.85 }));
+      band.rotation.x = Math.PI / 2;
+      band.position.y = -BODY.forearm + 0.012 + i * 0.008;
+      pulseira.add(band);
+    }
+    pulseira.visible = false;
+    this.armF.mid.add(pulseira);
+    this.accessories.set('acess-pulseira', pulseira);
+
+    // Boné com aba curva, por cima do cabelo
+    const bone = new THREE.Group();
+    const capMat = new THREE.MeshStandardMaterial({ color: 0x1b2c4a, roughness: 0.8 });
+    const crown = new THREE.Mesh(new THREE.SphereGeometry(0.112, 28, 14, 0, Math.PI * 2, 0, Math.PI * 0.5), capMat);
+    crown.scale.set(0.95, 0.85, 1.02);
+    const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.006, 24, 1, false, -Math.PI * 0.45, Math.PI * 0.9), capMat);
+    brim.scale.set(1, 1, 1.15);
+    brim.position.set(0, 0.002, 0.07);
+    brim.rotation.x = 0.12;
+    const button = new THREE.Mesh(new THREE.SphereGeometry(0.009, 10, 8), capMat);
+    button.position.y = 0.095;
+    bone.add(crown, brim, button);
+    bone.position.set(0, 0.095, -0.005);
+    bone.rotation.x = -0.1;
+    bone.visible = false;
+    this.head.add(bone);
+    this.accessories.set('acess-bone', bone);
 
     // Tornozeleira do leash na perna de trás (esquerda, com o pé direito à frente). A corda é simulada pela cena.
     const strap = new THREE.Mesh(new THREE.TorusGeometry(0.043, 0.013, 8, 22), new THREE.MeshStandardMaterial({ color: 0x15171a, roughness: 0.7 }));
@@ -631,35 +884,119 @@ export class SurferRig implements SurferAvatar {
   }
 
   applyLook(l: SurferLook) {
-    this.suit.color.setHex(l.suit.color ?? 0x16191d);
-    this.accent.color.setHex(l.suit.accent ?? 0x2fb4d6);
-    this.suitStyle = l.suit.style ?? 'longo';
-    // Bermuda é tecido (sem relevo de neoprene e sem brilho de borracha).
-    const fabric = this.suitStyle === 'bermuda';
-    this.suit.bumpScale = fabric ? 0.15 : 0.6;
-    this.suit.sheen = fabric ? 0.6 : 0.4;
-    this.suit.roughness = fabric ? 0.85 : 0.62;
-    const skinRoles: Record<string, Role[]> = {
-      longo: [],
-      curto: ['forearm', 'shin'],
-      bermuda: ['abdomen', 'chest', 'upperArm', 'forearm', 'shin'],
-    };
-    const bare = skinRoles[this.suitStyle] ?? [];
-    for (const s of this.segments) s.mesh.material = bare.includes(s.role) ? this.skin : this.suit;
-    this.suitBands[0].visible = this.suitStyle !== 'bermuda';
-    this.activeHair = l.hair.style ?? 'curto';
+    const skinItem = findItem(l.skin);
+    const tone = skinItem?.color ?? 0xbb875c;
+    this.skin.color.setHex(tone);
+    this.skin.sheenColor.setHex(skinItem?.sheen ?? 0xff9b7a);
+    // Boca: o próprio tom da pele, um pouco mais escuro e puxado para o vermelho.
+    this.lipMat.color.setHex(tone).lerp(new THREE.Color(0x8a3a34), 0.22).multiplyScalar(0.82);
+    this.irisMat.color.setHex(colorOf(l.eyes, 0x4a3322));
+    const hairColor = colorOf(l.hairColor, 0x3b2618);
+    this.hairMat.color.setHex(hairColor);
+    this.stubbleMat.color.setHex(hairColor);
+    this.activeHair = this.hairStyles.has(l.hair) ? l.hair : 'curto';
     for (const [id, g] of this.hairStyles) g.visible = id === this.activeHair;
-    this.hairMat.color.setHex(l.hairColor.color ?? 0x3b2618);
-    const tattoo = l.tattoo.style ?? 'nenhuma';
-    for (const [id, m] of this.tattoos) {
-      const covered = id === 'tribal' ? !bare.includes('forearm') : !bare.includes('shin');
-      m.visible = id === tattoo && !covered;
+    for (const [id, g] of this.browStyles) g.visible = id === (this.browStyles.has(l.brows) ? l.brows : 'sobr-natural');
+    for (const [id, g] of this.beardStyles) g.visible = id === l.beard;
+
+    // Roupa: peças ativas, do fundo para cima. Cada uma tem material liso para as articulações.
+    const garments = activeGarments(l).map((g, i) => {
+      const def = GARMENTS[g.id] ?? { coverage: {}, fabric: 'tecido' as const };
+      const colors = g.style.colors.map((c) => colorOf(c, 0x16191d)) as [number, number, number];
+      const mat = this.garmentMats[Math.min(i, this.garmentMats.length - 1)];
+      mat.color.setHex(colors[0]);
+      mat.roughness = ROUGH[def.fabric];
+      mat.sheen = def.fabric === 'tecido' ? 0.6 : 0.4;
+      return { ...g, def, colors, mat };
+    });
+    const cover = (role: Role) => {
+      let best: (typeof garments)[number] | null = null;
+      for (const g of garments) if ((g.def.coverage[role] ?? 0) > 0) best = g;
+      return best;
+    };
+    const amount = (role: Role) => Math.max(0, ...garments.map((g) => g.def.coverage[role] ?? 0));
+    this.torsoFabric = cover('chest')?.def.fabric ?? cover('hips')?.def.fabric ?? 'pele';
+
+    for (const p of this.painted) this.paint(p, l, tone, garments);
+    // Tampas das articulações: roupa se a peça chega até ali, senão pele.
+    const parentRole: Partial<Record<Role, Role>> = { shin: 'thigh', forearm: 'upperArm' };
+    for (const s of this.segments) {
+      let g = cover(s.role);
+      if (s.lower) {
+        const parent = parentRole[s.role]!;
+        g = amount(parent) >= 0.98 ? cover(parent) : (cover(s.role) ?? null);
+      }
+      s.mesh.material = g ? g.mat : this.skin;
     }
-    const acc = l.accessory.style ?? 'leash';
-    for (const [id, o] of this.accessories) o.visible = id === acc;
+    // Faixas de destaque: painel do peito só no neoprene; cós da cintura em neoprene e bermuda.
+    const suit = garments.find((g) => g.def.fabric === 'neoprene');
+    const shorts = garments.find((g) => g.id.startsWith('bermuda'));
+    this.suitBands[0].visible = !!suit;
+    this.suitBands[1].visible = !!suit || !!shorts;
+    this.accent.color.setHex((suit ?? shorts)?.colors[2] ?? 0x2fb4d6);
+    for (const [id, o] of this.accessories) o.visible = id === l.accessory;
     this.setWetness(this.wetness);
   }
 
+  /** Pinta pele, tatuagens e roupa na textura de uma parte do corpo. */
+  private paint(p: Painted, l: SurferLook, tone: number, garments: { id: string; style: { pattern: string }; def: { coverage: Partial<Record<Role, number>>; fabric: keyof typeof ROUGH }; colors: [number, number, number] }[]) {
+    const S = PAINT_SIZE;
+    const g = p.canvas.getContext('2d')!;
+    const r = p.rough.getContext('2d')!;
+    const ppmV = S / p.len;
+    // Pele com variação sutil de tom.
+    g.globalCompositeOperation = 'source-over';
+    g.fillStyle = `#${tone.toString(16).padStart(6, '0')}`;
+    g.fillRect(0, 0, S, S);
+    let seed = p.seed;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+    for (let i = 0; i < 500; i++) {
+      g.fillStyle = rnd() < 0.5 ? 'rgba(255,240,230,0.05)' : 'rgba(90,40,30,0.05)';
+      g.beginPath();
+      g.arc(rnd() * S, rnd() * S, 1 + rnd() * 3, 0, Math.PI * 2);
+      g.fill();
+    }
+    const gray = (v: number) => {
+      const c = Math.round(v * 255);
+      return `rgb(${c},${c},${c})`;
+    };
+    r.fillStyle = gray(ROUGH.pele);
+    r.fillRect(0, 0, S, S);
+
+    // Tatuagens desta parte, pintadas na pele (a roupa vem por cima e cobre).
+    for (const t of l.tattoos) {
+      const place = REGION_PLACE[t.region];
+      if (place.role !== p.role || (place.side !== 'center' && place.side !== p.side)) continue;
+      const u = REGION_U[t.region] ?? p.outerU;
+      const v = p.torso ? place.t : limbV(place.t);
+      const ppmU = S / p.circ(place.t);
+      const size = 0.085 * t.size * (p.role === 'chest' ? 1.4 : p.role === 'forearm' ? 0.85 : 1);
+      const design = t.design.replace('tattoo-', '');
+      // Desenha também deslocado de uma volta, para não cortar na emenda da textura.
+      for (const dx of [-S, 0, S]) drawTattoo(g, design, u * S + dx, v * S, size, ppmU, ppmV, t.rotation);
+    }
+
+    for (const gm of garments) {
+      const cov = gm.def.coverage[p.role] ?? 0;
+      if (cov <= 0) continue;
+      // Membros: a peça cobre do topo (v = 1) até a fração indicada. Torso: tudo.
+      const full = p.torso || cov >= 0.98;
+      const yStart = full ? 0 : limbV(cov) * S;
+      const ppmU = S / p.circ(Math.min(cov, 1) * 0.5);
+      drawPattern(g, gm.style.pattern, gm.colors, { x0: 0, y0: yStart, x1: S, y1: S, ppmU, ppmV, seed: p.seed + gm.id.length, outerX: p.outerU * S });
+      // Barra da peça na cor de detalhe.
+      if (!full) {
+        g.fillStyle = `#${gm.colors[2].toString(16).padStart(6, '0')}`;
+        g.fillRect(0, yStart, S, 0.012 * ppmV);
+      }
+      r.fillStyle = gray(ROUGH[gm.def.fabric]);
+      r.fillRect(0, yStart, S, S - yStart);
+    }
+    const mat = p.mat;
+    mat.map!.needsUpdate = true;
+    mat.roughnessMap!.needsUpdate = true;
+    mat.sheenColor.copy(this.skin.sheenColor);
+  }
   /** Zera a memória do movimento secundário (nova onda ou cena de teste). */
   resetDynamics() {
     this.hasHeadPos = false;
@@ -675,11 +1012,18 @@ export class SurferRig implements SurferAvatar {
   /** Pele e roupa ficam mais brilhantes molhadas (0 seco, 1 encharcado). */
   setWetness(w: number) {
     this.wetness = THREE.MathUtils.clamp(w, 0, 1);
-    const fabric = this.suitStyle === 'bermuda';
+    const fabric = this.torsoFabric === 'tecido';
     this.skin.clearcoat = 0.45 * this.wetness;
     this.skin.roughness = 0.55 - 0.2 * this.wetness;
-    this.suit.clearcoat = (fabric ? 0.05 : 0.1) + (fabric ? 0.15 : 0.5) * this.wetness;
-    this.suit.clearcoatRoughness = 0.4 - 0.25 * this.wetness;
+    for (const p of this.painted) {
+      // O mapa de rugosidade já diferencia pele, neoprene e tecido; a água deixa tudo mais liso.
+      p.mat.roughness = 1 - 0.35 * this.wetness;
+      p.mat.clearcoat = (fabric ? 0.05 : 0.1) + (fabric ? 0.2 : 0.45) * this.wetness;
+    }
+    for (const m of this.garmentMats) {
+      m.clearcoat = 0.1 + 0.45 * this.wetness;
+      m.clearcoatRoughness = 0.4 - 0.25 * this.wetness;
+    }
     this.hairMat.roughness = 0.68 - 0.3 * this.wetness;
   }
 

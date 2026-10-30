@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Sfx } from '../audio/Sfx';
+import { cloneLook, type Look } from '../data/cosmetics';
 import { findBoard, findFin } from '../data/equipment';
 import { findLocation } from '../data/locations';
 import { clampSetup, generateWaveConditions, type HeatSetup } from '../core/conditions';
@@ -27,11 +28,25 @@ import {
   wheel,
   wheelTarget,
 } from '../ui/heatViews';
-import { helpModal, lockerScreen, menuScreen, settingsScreen, setupScreen, skillsScreen, type MenuHost } from '../ui/screens';
+import { lockerScreen, type LockerFocus, type LockerView } from '../ui/locker';
+import { confirmModal, helpModal, menuScreen, pauseMenu, settingsScreen, setupScreen, skillsScreen, type MenuHost } from '../ui/screens';
 import { AerialAnimator } from './AerialAnimator';
 import { persist, resetProgress, state } from './state';
 
 type Mode = 'menu' | 'setup' | 'skills' | 'locker' | 'settings' | 'intro' | 'roulette' | 'challenge' | 'ride' | 'waveResult' | 'heatResult';
+
+/** Telas de menu: a cena fica atrás da interface e é renderizada na resolução nativa. */
+const MENU_MODES: Mode[] = ['menu', 'setup', 'skills', 'locker', 'settings', 'heatResult'];
+/** Momentos da bateria em que Esc abre o menu de pausa. */
+const HEAT_MODES: Mode[] = ['intro', 'roulette', 'challenge', 'ride', 'waveResult'];
+
+/** Enquadramento de cada categoria do vestiário: distância, inclinação e se o surfista está no ar. */
+const FOCUS: Record<LockerFocus, { dist: number; pitch: number; air: boolean; min: number; max: number }> = {
+  rosto: { dist: 0.85, pitch: 0.06, air: false, min: 0.45, max: 2.2 },
+  corpo: { dist: 2.7, pitch: 0.12, air: false, min: 1.2, max: 5.5 },
+  prancha: { dist: 2.9, pitch: 0.55, air: true, min: 1.4, max: 6 },
+  quilhas: { dist: 1.5, pitch: -0.45, air: true, min: 0.6, max: 4 },
+};
 
 const KEY_CODES: Record<string, CommandKey> = {
   Space: 'SPACE',
@@ -107,6 +122,11 @@ export class App implements MenuHost {
   labFreeze: number | null = null;
   /** Nas cenas de validação, quando o piloto automático aperta D. */
   labDropAt = 0.8;
+  /** Bateria pausada (Esc): o tempo da onda para e os comandos ficam bloqueados. */
+  private paused = false;
+  private pauseEl: HTMLElement | null = null;
+  /** Câmera orbital do vestiário. */
+  private showcase: { focus: LockerFocus; air: boolean; yaw: number; pitch: number; dist: number; base: number; target: THREE.Vector3 } | null = null;
 
   constructor(view: HTMLElement, ui: HTMLElement) {
     this.ui = ui;
@@ -126,6 +146,12 @@ export class App implements MenuHost {
   // ---------- Telas de menu ----------
 
   go(screen: 'menu' | 'setup' | 'skills' | 'locker' | 'settings') {
+    // Saindo do vestiário sem salvar: volta a aparência salva.
+    if (this.mode === 'locker') this.world.setEquipment(this.setup.boardId, this.setup.finId, state.save.look);
+    this.setPaused(false);
+    this.showcase = null;
+    this.world.setShowroom(false);
+    this.world.stage.camera.clearViewOffset();
     this.mode = screen;
     this.heat = null;
     this.demoConditions = null;
@@ -136,7 +162,8 @@ export class App implements MenuHost {
     this.screenEl = builders[screen](this);
     this.ui.appendChild(this.screenEl);
     this.primary = screen === 'menu' ? () => this.go('setup') : screen === 'setup' ? () => (this.screenEl as HTMLElement & { submit?: () => void }).submit?.() : null;
-    if (!this.ride || !this.ride.demo) this.startDemo();
+    if (screen === 'locker') this.lockerFocus('corpo');
+    else if (!this.ride || !this.ride.demo || this.ride.lab) this.startDemo();
   }
 
   showHelp() {
@@ -150,7 +177,7 @@ export class App implements MenuHost {
 
   preview(setup: HeatSetup) {
     this.setup = setup;
-    this.world.setEquipment(setup.boardId, setup.finId, state.save.loadout);
+    this.world.setEquipment(setup.boardId, setup.finId, state.save.look);
     const c = generateWaveConditions(setup, () => 0.5);
     this.world.setLocation(setup.locationId, c);
     this.sfx.setSurf(c.power, c.windSpeed);
@@ -158,7 +185,7 @@ export class App implements MenuHost {
   }
 
   refreshLook() {
-    this.world.setEquipment(this.setup.boardId, this.setup.finId, state.save.loadout);
+    this.world.setEquipment(this.setup.boardId, this.setup.finId, state.save.look);
   }
 
   setQuality(q: typeof state.save.prefs.quality) {
@@ -190,6 +217,136 @@ export class App implements MenuHost {
     this.primary = null;
   }
 
+  // ---------- Vestiário ----------
+
+  /** Mostra a aparência em edição sem salvar. */
+  lockerPreview(look: Look) {
+    this.world.setEquipment(this.setup.boardId, this.setup.finId, look);
+  }
+
+  saveLook(look: Look) {
+    state.save.look = cloneLook(look);
+    persist();
+    this.world.setEquipment(this.setup.boardId, this.setup.finId, state.save.look);
+  }
+
+  /**
+   * Enquadra uma parte do personagem. Corpo e rosto: surfista em pé na onda,
+   * parado. Prancha e quilhas: congelado no ar, para ver o fundo e as quilhas.
+   */
+  lockerFocus(focus: LockerFocus) {
+    const f = FOCUS[focus];
+    const prev = this.showcase;
+    if (!prev || prev.air !== f.air) {
+      this.showcasePose(f.air);
+      // Piso logo abaixo da prancha em pé; no ar, bem mais abaixo.
+      const b = this.world.board.group.position;
+      this.world.setShowroom(true, b.y - (f.air ? 1.3 : 0.12));
+    }
+    const rig = this.world.rig;
+    const target = new THREE.Vector3();
+    if (focus === 'rosto') rig.head.getWorldPosition(target).add(new THREE.Vector3(0, 0.07, 0));
+    else if (focus === 'corpo') rig.chest.getWorldPosition(target).add(new THREE.Vector3(0, -0.3, 0));
+    else if (focus === 'prancha') this.world.board.group.getWorldPosition(target);
+    else this.world.board.group.localToWorld(target.set(-this.world.board.shape.length / 2 + 0.25, -0.05, 0));
+    // Ângulo de frente do surfista (o peito aponta para +z local).
+    const dir = rig.chest.getWorldDirection(new THREE.Vector3());
+    const base = Math.atan2(dir.x, dir.z);
+    this.showcase = { focus, air: f.air, yaw: prev?.yaw ?? 0.35, pitch: f.pitch, dist: f.dist, base, target };
+    this.world.camRig.override = (cam) => this.showcaseCamera(cam);
+    this.frame(0);
+  }
+
+  lockerOrbit(dYaw: number, dPitch: number, zoom: number) {
+    const s = this.showcase;
+    if (!s) return;
+    const f = FOCUS[s.focus];
+    s.yaw += dYaw;
+    s.pitch = THREE.MathUtils.clamp(s.pitch + dPitch, -1.2, 1.3);
+    s.dist = THREE.MathUtils.clamp(s.dist * zoom, f.min, f.max);
+  }
+
+  lockerView(view: LockerView) {
+    if (!this.showcase) return;
+    this.showcase.yaw = view === 'frente' ? 0 : view === 'costas' ? Math.PI : Math.PI / 2;
+    this.showcase.pitch = FOCUS[this.showcase.focus].pitch;
+  }
+
+  private showcaseCamera(cam: THREE.PerspectiveCamera) {
+    const s = this.showcase!;
+    const yaw = s.base + s.yaw;
+    const c = Math.cos(s.pitch);
+    // Tela em pé (celular): o campo horizontal é estreito, então a câmera se afasta.
+    const dist = s.dist * Math.max(1, 0.85 / cam.aspect);
+    cam.position.set(s.target.x + Math.sin(yaw) * c * dist, s.target.y + Math.sin(s.pitch) * dist, s.target.z + Math.cos(yaw) * c * dist);
+    cam.lookAt(s.target);
+    // Centraliza o personagem na área livre, ao lado do painel do vestiário.
+    const panel = document.querySelector('.locker-panel')?.getBoundingClientRect();
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    if (panel && panel.left > w * 0.4) cam.setViewOffset(w, h, (w - panel.left) / 2, 0, w, h);
+    else if (panel && panel.top > h * 0.2) cam.setViewOffset(w, h, 0, (h - panel.top) / 2, w, h);
+    else cam.clearViewOffset();
+  }
+
+  /** Monta a pose parada do vestiário sem simular o mar quadro a quadro (é rápido). */
+  private showcasePose(air: boolean) {
+    const save = state.save;
+    const c = generateWaveConditions(this.setup, () => 0.5);
+    this.world.setLocation(this.setup.locationId, c);
+    const ride = this.makeRide(MANEUVERS[0], true, this.setup, { ...save.attributes, amplitude: 60, forca: 50 });
+    ride.forced = () => 'perfect';
+    ride.outcome = 'limpa';
+    ride.lab = true;
+    this.ride = ride;
+    this.labFreeze = null;
+    const run = ride.run;
+    const target = () => (air ? (run.takeoffAt === null ? null : run.takeoffAt + 0.3) : run.dropAt === null ? null : run.dropAt + DROP_TIME + 0.5);
+    const dt = 1 / 60;
+    for (let i = 0; i < 1500; i++) {
+      const t = target();
+      if (t !== null && ride.time >= t) break;
+      ride.time += dt;
+      if (ride.track === null) this.autopilot(ride, 0.6);
+      run.update(dt);
+      this.world.applyFrame(ride.animator.update(ride.time, dt, ride.outcome), dt);
+    }
+    this.labFreeze = ride.time;
+    const p = run.position();
+    this.world.camRig.snap(this.tmpTarget.set(p.x, p.y, p.z), c.height);
+    this.frame(0);
+  }
+
+  // ---------- Pausa ----------
+
+  private setPaused(on: boolean) {
+    if (on === this.paused) return;
+    this.paused = on;
+    this.ride?.run.setAccelerate(false);
+    if (!on) {
+      this.pauseEl?.remove();
+      this.pauseEl = null;
+      return;
+    }
+    this.pauseEl = pauseMenu({
+      resume: () => this.setPaused(false),
+      help: () => helpModal(this.ui),
+      camera: () => {
+        state.save.prefs.camera = state.save.prefs.camera === 'lateral' ? 'proxima' : 'lateral';
+        persist();
+        this.world.setCameraMode(state.save.prefs.camera);
+      },
+      sound: () => {
+        state.save.prefs.sound = !state.save.prefs.sound;
+        persist();
+        this.sfx.setEnabled(state.save.prefs.sound);
+      },
+      quit: () => confirmModal(this.ui, 'Sair da bateria?', 'A pontuação desta bateria não será salva.', 'Sair para o menu', () => this.go('menu')),
+      click: () => this.click(),
+    });
+    this.ui.appendChild(this.pauseEl);
+  }
+
   // ---------- Bateria ----------
 
   startHeat(setup: HeatSetup) {
@@ -197,7 +354,7 @@ export class App implements MenuHost {
     this.setup = clampSetup(setup);
     save.lastSetup = { ...this.setup };
     persist();
-    this.world.setEquipment(this.setup.boardId, this.setup.finId, save.loadout);
+    this.world.setEquipment(this.setup.boardId, this.setup.finId, save.look);
     this.heat = new HeatSession(this.setup, { ...save.attributes }, save.unlockedManeuvers, save.discoveries, Math.random, { ...save.mastery });
     this.showIntro();
   }
@@ -324,9 +481,31 @@ export class App implements MenuHost {
 
   private onKey(e: KeyboardEvent) {
     this.sfx.unlock();
-    if (document.querySelector('.modal-bg')) {
-      if (e.code === 'Escape') document.querySelector('.modal-bg')?.remove();
+    const modals = document.querySelectorAll('.modal-bg');
+    if (modals.length) {
+      if (e.code === 'Escape') {
+        const top = modals[modals.length - 1];
+        if (top === this.pauseEl) this.setPaused(false);
+        else top.remove();
+      }
       return;
+    }
+    if (e.code === 'Escape' && HEAT_MODES.includes(this.mode) && !(this.ride?.lab)) {
+      e.preventDefault();
+      this.setPaused(true);
+      return;
+    }
+    if (this.mode === 'locker' && !(e.target instanceof HTMLInputElement)) {
+      const orbit: Record<string, [number, number, number]> = {
+        ArrowLeft: [-0.25, 0, 1], ArrowRight: [0.25, 0, 1], ArrowUp: [0, 0.12, 1], ArrowDown: [0, -0.12, 1],
+        Equal: [0, 0, 0.85], NumpadAdd: [0, 0, 0.85], Minus: [0, 0, 1.18], NumpadSubtract: [0, 0, 1.18],
+      };
+      const o = orbit[e.code];
+      if (o) {
+        e.preventDefault();
+        this.lockerOrbit(...o);
+        return;
+      }
     }
     const key = KEY_CODES[e.code];
     const rideKey = key || e.code === 'KeyD' || e.code === 'KeyW';
@@ -340,7 +519,8 @@ export class App implements MenuHost {
       e.preventDefault();
       this.primary();
     }
-    if (e.code === 'Escape' && (this.mode === 'setup' || this.mode === 'skills' || this.mode === 'locker' || this.mode === 'settings')) this.go('menu');
+    if (e.code === 'Escape' && this.mode === 'locker') (this.screenEl as HTMLElement & { cancel?: () => void }).cancel?.();
+    else if (e.code === 'Escape' && (this.mode === 'setup' || this.mode === 'skills' || this.mode === 'settings')) this.go('menu');
   }
 
   /** Tempo atual da onda em ms, com a fração desde o último quadro para medir o toque com precisão. */
@@ -491,6 +671,12 @@ export class App implements MenuHost {
 
   frame(dt: number) {
     this.lastReal = performance.now();
+    this.world.stage.setSharp(MENU_MODES.includes(this.mode));
+    if (this.paused) {
+      // Pausado: só redesenha a cena parada.
+      this.world.update(0, this.ride?.time ?? 0, this.world.board.group.position.x);
+      return;
+    }
     this.fps = this.fps * 0.95 + (1 / Math.max(dt, 1e-3)) * 0.05;
     if (this.wheelState) this.updateWheel(dt);
     const r = this.ride;
@@ -705,7 +891,7 @@ export class App implements MenuHost {
     this.heat = null;
     this.clearUi();
     const setup = { ...this.setup, locationId: cfg.location ?? this.setup.locationId };
-    this.world.setEquipment(setup.boardId, setup.finId, state.save.loadout);
+    this.world.setEquipment(setup.boardId, setup.finId, state.save.look);
     const c = generateWaveConditions(setup, () => 0.5);
     this.world.setLocation(setup.locationId, c);
     const ride = this.makeRide(m, true, setup, { ...state.save.attributes, amplitude: 60, forca: 50 });

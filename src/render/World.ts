@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { findCosmetic, type Loadout } from '../data/cosmetics';
+import { DEFAULT_LOOK, type Look } from '../data/cosmetics';
 import { findBoard, findFin } from '../data/equipment';
 import { findLocation } from '../data/locations';
 import type { CameraMode, Quality } from '../core/save';
@@ -14,8 +14,7 @@ import { Ocean, WAKE_LIFE, type WakePoint } from './Ocean';
 import { Scenery } from './Scenery';
 import { Spray } from './Spray';
 import { Stage } from './Stage';
-import { SurferRig, type SurferLook } from './SurferRig';
-import type { BoardGraphic } from './textures';
+import { SurferRig } from './SurferRig';
 
 export const WIND_DIR: Record<WindType, { x: number; z: number }> = {
   terral: { x: 0, z: -1 },
@@ -48,6 +47,8 @@ export class World {
   private tmp = new THREE.Vector3();
   private tmp2 = new THREE.Vector3();
   private lastTime = 0;
+  /** Piso do vestiário: um disco de luz suave sob o surfista, no lugar do mar. */
+  private showroomFloor: THREE.Mesh | null = null;
 
   constructor(container: HTMLElement, quality: Quality, cameraMode: CameraMode = 'lateral') {
     this.quality = quality;
@@ -59,9 +60,38 @@ export class World {
     this.ocean = new Ocean(this.stage.scene, this.stage.profile.oceanStep, this.stage.profile.detailNormals);
     this.scenery = new Scenery(this.stage.scene);
     this.spray = new Spray(this.stage.scene, this.stage.profile.particles);
-    this.board = new BoardModel(findBoard('standard'), 'thruster', 'faixa', 0xf3efe6, 0x1d5f8a);
+    this.board = new BoardModel(findBoard('standard'), 'thruster', DEFAULT_LOOK.board, DEFAULT_LOOK.fins);
     this.stage.scene.add(this.board.group, this.rig.root);
     this.leash = new Leash(this.stage.scene);
+  }
+
+  /**
+   * Vestiário: esconde o mar e o cenário para a câmera girar em volta do
+   * surfista sem atravessar a onda, e mostra um piso neutro em floorY.
+   */
+  setShowroom(on: boolean, floorY = 0) {
+    for (const o of [this.ocean.mesh, this.ocean.far, this.ocean.lip, this.spray.points, this.scenery.group]) o.visible = !on;
+    if (on && !this.showroomFloor) {
+      const c = document.createElement('canvas');
+      c.width = c.height = 256;
+      const g = c.getContext('2d')!;
+      const grad = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+      grad.addColorStop(0, 'rgba(234,217,182,0.95)');
+      grad.addColorStop(0.55, 'rgba(200,190,170,0.55)');
+      grad.addColorStop(1, 'rgba(200,190,170,0)');
+      g.fillStyle = grad;
+      g.fillRect(0, 0, 256, 256);
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      this.showroomFloor = new THREE.Mesh(new THREE.CircleGeometry(2.6, 48), new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.9, depthWrite: false }));
+      this.showroomFloor.rotation.x = -Math.PI / 2;
+      this.showroomFloor.receiveShadow = true;
+      this.stage.scene.add(this.showroomFloor);
+    }
+    if (this.showroomFloor) {
+      this.showroomFloor.visible = on;
+      this.showroomFloor.position.set(this.board.group.position.x, floorY, this.board.group.position.z);
+    }
   }
 
   get currentQuality(): Quality {
@@ -120,32 +150,20 @@ export class World {
     this.spray.wind.copy(this.windVec).multiplyScalar(0.7);
   }
 
-  setEquipment(boardId: string, finId: string, loadout: Loadout) {
-    const color = findCosmetic(loadout.corPrancha);
-    const graphic = (findCosmetic(loadout.grafismo)?.style ?? 'faixa') as BoardGraphic;
+  /** Troca prancha e quilhas (função) e aplica a aparência do surfista e do equipamento. */
+  setEquipment(boardId: string, finId: string, look: Look) {
     const key = `${boardId}-${finId}`;
     if (key !== this.boardKey) {
       this.boardKey = key;
       this.stage.scene.remove(this.board.group);
       this.board.dispose();
-      this.board = new BoardModel(findBoard(boardId), findFin(finId).id, graphic, color?.color ?? 0xf3efe6, color?.accent ?? 0x1d5f8a);
+      this.board = new BoardModel(findBoard(boardId), findFin(finId).id, look.board, look.fins);
       this.stage.scene.add(this.board.group);
       this.leash.reset();
     } else {
-      this.board.setFinish(graphic, color?.color ?? 0xf3efe6, color?.accent ?? 0x1d5f8a);
+      this.board.setFinish(look.board, look.fins);
     }
-    this.rig.applyLook(this.look(loadout));
-  }
-
-  look(loadout: Loadout): SurferLook {
-    const get = (id: string, fallback: string) => findCosmetic(id) ?? findCosmetic(fallback)!;
-    return {
-      suit: get(loadout.roupa, 'long-preto'),
-      hair: get(loadout.cabelo, 'cabelo-curto'),
-      hairColor: get(loadout.corCabelo, 'cor-castanho'),
-      tattoo: get(loadout.tatuagem, 'tattoo-nenhuma'),
-      accessory: get(loadout.acessorio, 'acess-leash'),
-    };
+    this.rig.applyLook(look);
   }
 
   applyFrame(f: AnimFrame, dt: number) {

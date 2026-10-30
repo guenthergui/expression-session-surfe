@@ -1,5 +1,4 @@
 import { ATTRIBUTE_EN, ATTRIBUTE_HINTS, ATTRIBUTE_LABELS, MAX_ATTRIBUTE } from '../data/attributes';
-import { COSMETICS, SLOT_LABELS, type CosmeticSlot } from '../data/cosmetics';
 import { BOARDS, FINS, formatDims } from '../data/equipment';
 import { LOCATIONS, WIND_HINTS, WIND_LABELS, findLocation } from '../data/locations';
 import { STEPS, clampSetup, sectionLabel, type HeatSetup } from '../core/conditions';
@@ -10,9 +9,13 @@ import { FAMILIES, QUALITIES, type CameraMode, type Quality } from '../core/save
 import { QUALITY } from '../render/Stage';
 import { ATTRIBUTE_KEYS, type PhaseMods } from '../core/types';
 import { persist, state } from '../game/state';
-import { bind, el, esc, hexColor, signed } from './dom';
+import { bind, el, esc, signed } from './dom';
+import { icon } from './icons';
+import { lockerScreen, type LockerHost } from './locker';
 
-export interface MenuHost {
+export { lockerScreen };
+
+export interface MenuHost extends LockerHost {
   go(screen: 'menu' | 'setup' | 'skills' | 'locker' | 'settings'): void;
   startHeat(setup: HeatSetup): void;
   preview(setup: HeatSetup): void;
@@ -38,7 +41,7 @@ export function menuScreen(host: MenuHost): HTMLElement {
   const root = el(`
     <div class="screen menu">
       <div class="menu-left">
-        <div class="logo">EXPRESSION<br/>SESSION<small>SURFE AÉREO · VERSÃO 0.1</small></div>
+        <div class="logo">EXPRESSION<br/>SESSION<small>SURFE AÉREO</small></div>
         <div class="panel profile">
           <div class="profile-row"><b>Nível ${s.level}</b><span class="muted">XP ${s.xp}/${xpToNext(s.level)}</span></div>
           <div class="bar"><span style="width:${(s.xp / xpToNext(s.level)) * 100}%"></span></div>
@@ -49,11 +52,11 @@ export function menuScreen(host: MenuHost): HTMLElement {
         </div>
       </div>
       <div class="menu-buttons">
-        <button class="btn" data-action="play">Começar bateria <span class="kbd">Enter</span></button>
-        <button class="btn cyan" data-action="skills">Evolução do surfista${s.skillPoints ? ` <span class="kbd">${s.skillPoints} pts</span>` : ''}</button>
-        <button class="btn secondary" data-action="locker">Personalização</button>
-        <button class="btn secondary" data-action="settings">Configurações</button>
-        <button class="btn secondary" data-action="help">Como jogar</button>
+        <button class="btn" data-action="play">${icon('play')} Começar bateria <span class="kbd">Enter</span></button>
+        <button class="btn secondary" data-action="skills">${icon('chart')} Evolução do surfista${s.skillPoints ? ` <span class="kbd warn">${s.skillPoints} pts</span>` : ''}</button>
+        <button class="btn secondary" data-action="locker">${icon('shirt')} Vestiário</button>
+        <button class="btn secondary" data-action="settings">${icon('gear')} Configurações</button>
+        <button class="btn secondary" data-action="help">${icon('help')} Como jogar</button>
       </div>
     </div>`);
   bind(root, {
@@ -74,8 +77,8 @@ export function setupScreen(host: MenuHost): HTMLElement {
       <div class="header">
         <h1>Preparação da bateria</h1>
         <div class="actions">
-          <button class="btn secondary" data-action="back">Voltar</button>
-          <button class="btn" data-action="start">Iniciar bateria <span class="kbd">Enter</span></button>
+          <button class="btn secondary" data-action="back">${icon('back')} Voltar</button>
+          <button class="btn" data-action="start">${icon('play')} Iniciar bateria <span class="kbd">Enter</span></button>
         </div>
       </div>
       <div class="page-body">
@@ -194,8 +197,8 @@ export function skillsScreen(host: MenuHost): HTMLElement {
       <div class="header">
         <h1>Evolução do surfista</h1>
         <div class="actions">
-          <button class="btn secondary" data-action="back">Menu</button>
-          <button class="btn" data-action="play">Nova bateria</button>
+          <button class="btn secondary" data-action="back">${icon('back')} Menu</button>
+          <button class="btn" data-action="play">${icon('play')} Nova bateria</button>
         </div>
       </div>
       <div class="page-body" style="grid-template-columns: minmax(420px, 2fr) minmax(280px, 1fr)">
@@ -248,70 +251,28 @@ export function skillsScreen(host: MenuHost): HTMLElement {
   return root;
 }
 
-export function lockerScreen(host: MenuHost): HTMLElement {
-  const root = el(`<div class="screen page"></div>`);
-  const slots = Object.keys(SLOT_LABELS) as CosmeticSlot[];
-  const render = () => {
-    const s = state.save;
-    const suit = COSMETICS.find((c) => c.id === s.loadout.roupa);
-    const tattoo = COSMETICS.find((c) => c.id === s.loadout.tatuagem);
-    const covered = tattoo?.style !== 'nenhuma' && suit?.style === 'longo';
-    root.innerHTML = `
-      <div class="header">
-        <h1>Personalização</h1>
-        <div class="actions"><button class="btn secondary" data-action="back">Menu</button></div>
-      </div>
-      <div class="page-body" style="grid-template-columns: minmax(360px, 560px)">
-        <div class="panel section">
-          ${slots.map((slot) => `
-            <h3>${SLOT_LABELS[slot]}</h3>
-            <div class="options">
-              ${COSMETICS.filter((c) => c.slot === slot).map((c) => {
-                const locked = !s.unlockedCosmetics.includes(c.id);
-                const sel = s.loadout[slot] === c.id;
-                return `<button class="btn small ${sel ? '' : 'secondary'} ${locked ? 'locked' : ''}" data-action="pick" data-slot="${slot}" data-id="${c.id}" ${locked ? 'disabled' : ''}>
-                  ${c.color !== undefined ? `<span class="swatch" style="background:${hexColor(c.color)}"></span>` : ''}${esc(c.name)}${locked ? ` · Nv ${c.unlockLevel}` : ''}</button>`;
-              }).join('')}
-            </div>`).join('')}
-          ${covered ? '<div class="sub warn">A tatuagem fica coberta pelo long john. Use springsuit ou bermuda para mostrar.</div>' : ''}
-        </div>
-      </div>`;
-    bind(root, {
-      pick: (n) => {
-        state.save.loadout[n.dataset.slot as CosmeticSlot] = n.dataset.id!;
-        persist();
-        host.refreshLook();
-        render();
-      },
-      back: () => host.go('menu'),
-    }, () => host.click());
-  };
-  render();
-  return root;
-}
-
 export function settingsScreen(host: MenuHost): HTMLElement {
   const root = el(`<div class="screen page"></div>`);
   const render = () => {
     const p = state.save.prefs;
     root.innerHTML = `
-      <div class="header"><h1>Configurações</h1><div class="actions"><button class="btn secondary" data-action="back">Menu</button></div></div>
+      <div class="header"><h1>Configurações</h1><div class="actions"><button class="btn secondary" data-action="back">${icon('back')} Menu</button></div></div>
       <div class="page-body" style="grid-template-columns: minmax(360px, 560px)">
         <div class="panel section">
           <h3>Qualidade gráfica</h3>
           <div class="options">
-            ${QUALITIES.map((q) => `<button class="btn small ${p.quality === q ? '' : 'secondary'}" data-action="quality" data-q="${q}">${QUALITY[q].label}</button>`).join('')}
+            ${QUALITIES.map((q) => `<button class="btn small secondary ${p.quality === q ? 'selected' : ''}" aria-pressed="${p.quality === q}" data-action="quality" data-q="${q}">${QUALITY[q].label}</button>`).join('')}
           </div>
           <div class="sub muted">${qualityText(p.quality)}</div>
           <h3>Câmera</h3>
           <div class="options">
-            <button class="btn small ${p.camera === 'lateral' ? '' : 'secondary'}" data-action="camera" data-mode="lateral">Lateral (onda inteira)</button>
-            <button class="btn small ${p.camera === 'proxima' ? '' : 'secondary'}" data-action="camera" data-mode="proxima">Próxima (corpo e prancha)</button>
+            <button class="btn small secondary ${p.camera === 'lateral' ? 'selected' : ''}" aria-pressed="${p.camera === 'lateral'}" data-action="camera" data-mode="lateral">Lateral (onda inteira)</button>
+            <button class="btn small secondary ${p.camera === 'proxima' ? 'selected' : ''}" aria-pressed="${p.camera === 'proxima'}" data-action="camera" data-mode="proxima">Próxima (corpo e prancha)</button>
           </div>
           <h3>Som</h3>
           <div class="options">
-            <button class="btn small ${p.sound ? '' : 'secondary'}" data-action="sound" data-on="1">Ligado</button>
-            <button class="btn small ${p.sound ? 'secondary' : ''}" data-action="sound" data-on="0">Desligado</button>
+            <button class="btn small secondary ${p.sound ? 'selected' : ''}" aria-pressed="${p.sound}" data-action="sound" data-on="1">Ligado</button>
+            <button class="btn small secondary ${p.sound ? '' : 'selected'}" aria-pressed="${!p.sound}" data-action="sound" data-on="0">Desligado</button>
           </div>
           <h3>Progresso</h3>
           <div class="sub muted">Apaga nível, atributos, domínio, desbloqueios e recordes. Não dá para desfazer.</div>
@@ -394,7 +355,7 @@ export function helpModal(parent: HTMLElement) {
 function qualityText(q: Quality): string {
   const p = QUALITY[q];
   const parts = [
-    `resolução até ${p.pixelRatio}×`,
+    p.renderScale < 1 ? `cena 3D a ${Math.round(p.renderScale * 100)}% da resolução da tela` : `cena 3D na resolução da tela (até ${p.pixelRatio}×)`,
     p.shadows ? `sombras ${p.shadowSize}px` : 'sem sombras',
     `malha do mar a cada ${Math.round(p.oceanStep * 100)} cm`,
     `${p.particles} partículas`,
@@ -404,4 +365,51 @@ function qualityText(q: Quality): string {
     p.bloom ? 'brilho suave nos reflexos' : '',
   ].filter(Boolean);
   return `${p.label}: ${parts.join(', ')}.`;
+}
+
+export interface PauseActions {
+  resume(): void;
+  help(): void;
+  camera(): void;
+  sound(): void;
+  quit(): void;
+  click(): void;
+}
+
+/** Menu de pausa da bateria (Esc). O tempo da onda fica parado enquanto ele está aberto. */
+export function pauseMenu(a: PauseActions): HTMLElement {
+  const m = el(`
+    <div class="modal-bg">
+      <div class="panel modal" role="dialog" aria-label="Pausa" style="width:min(420px, calc(100vw - 32px))">
+        <div class="header"><h2>${icon('pause')} Pausa</h2><span class="kbd">Esc</span></div>
+        <div class="menu-buttons" style="width:auto">
+          <button class="btn" data-action="resume">${icon('play')} Continuar</button>
+          <button class="btn secondary" data-action="camera">${icon('gear')} <span data-label="camera"></span></button>
+          <button class="btn secondary" data-action="sound">${icon('gear')} <span data-label="sound"></span></button>
+          <button class="btn secondary" data-action="help">${icon('help')} Como jogar</button>
+          <button class="btn danger" data-action="quit">${icon('close')} Sair da bateria</button>
+        </div>
+      </div>
+    </div>`);
+  const labels = () => {
+    const p = state.save.prefs;
+    m.querySelector<HTMLElement>('[data-label=camera]')!.textContent = `Câmera: ${p.camera === 'lateral' ? 'lateral' : 'próxima'}`;
+    m.querySelector<HTMLElement>('[data-label=sound]')!.textContent = `Som: ${p.sound ? 'ligado' : 'desligado'}`;
+  };
+  bind(m, {
+    resume: () => a.resume(),
+    help: () => a.help(),
+    camera: () => {
+      a.camera();
+      labels();
+    },
+    sound: () => {
+      a.sound();
+      labels();
+    },
+    quit: () => a.quit(),
+  }, () => a.click());
+  labels();
+  setTimeout(() => m.querySelector<HTMLElement>('[data-action=resume]')?.focus(), 0);
+  return m;
 }

@@ -30,7 +30,15 @@ Abra o endereço que aparecer no terminal (normalmente http://localhost:5180).
 | `X` | Grab com a mão da frente (Mute, Melon) |
 | `↓` | Aterrissagem |
 | `Enter` | Começar ou repetir uma bateria nos menus |
-| `Esc` | Voltar ao menu |
+| `Esc` | Pausa durante a bateria; nos menus, volta (no vestiário, pergunta antes de descartar) |
+| `←` `→` `↑` `↓` `+` `-` | No vestiário: girar e aproximar a prévia 3D |
+
+No **Vestiário** dá para mudar tom de pele, olhos, sobrancelhas, barba, corte e
+cor do cabelo, roupa (neoprene ou bermuda e lycra/camiseta, com estampa e três
+cores por peça), tatuagens em 12 regiões do corpo (com tamanho e rotação),
+acessórios, arte e acabamento da prancha e o visual das quilhas. A prévia 3D
+gira com o mouse e muda na hora; só **Salvar** grava. A aparência nunca muda
+atributos, chance ou física.
 
 Em **Configurações** dá para escolher a qualidade gráfica (Low, Medium, High,
 Ultra) e a câmera (lateral, com a onda inteira, ou próxima, com o corpo e a prancha).
@@ -53,7 +61,7 @@ bateria → evolução dos atributos e personalização.
 ```
 src/
   data/      dados puros: atributos, pranchas e quilhas (em pés/polegadas → metros),
-             locais, manobras e cosméticos
+             locais, manobras e catálogo de aparência (cosmetics.ts)
   core/      regras do jogo, sem Three.js (testáveis)
     maneuvers.ts    gera e valida manobras e variações a partir dos componentes
     timing.ts       janelas de tempo Perfect/Good/Late/Miss
@@ -64,6 +72,7 @@ src/
     progression.ts  experiência, níveis, domínio técnico e desbloqueios
     rewards.ts      aplica o resultado da bateria ao progresso
     save.ts         salvamento versionado, com validação e migração
+    unlocks.ts      liberação de itens de aparência por nível, conquista e domínio
   sim/       física simplificada, sem Three.js
     waveField.ts    campo de altura da onda (o mesmo para gráfico e física)
     aerial.ts       trajetória: cavada, voo balístico e saída

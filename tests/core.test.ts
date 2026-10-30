@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { INITIAL_ATTRIBUTES } from '../src/data/attributes';
-import { COSMETICS } from '../src/data/cosmetics';
+import { CATALOG } from '../src/data/cosmetics';
 import { BOARDS, FINS, boardMeters, findBoard, findFin } from '../src/data/equipment';
 import { MANEUVER_DEFS } from '../src/data/maneuvers';
 import { clampSetup, defaultSetup } from '../src/core/conditions';
@@ -224,10 +224,10 @@ describe('atributos, nível e desbloqueios', () => {
     expect(r.pointsGained).toBe(8);
     expect(save.unlockedLocations).toContain('lagoa-azul');
     expect(save.unlockedManeuvers).toContain('fs-360-mute');
-    expect(save.unlockedCosmetics).toContain('long-oliva');
+    expect(save.unlockedCosmetics).toContain('cabelo-rosa');
     expect(r.unlocks.length).toBeGreaterThan(0);
     expect(refreshUnlocks(save)).toEqual([]); // nada liberado em dobro
-    expect(COSMETICS.every((c) => c.unlockLevel >= 1)).toBe(true);
+    expect(CATALOG.every((c) => c.unlock.kind !== 'level' || c.unlock.level >= 2)).toBe(true);
   });
 
   it('não gasta além do saldo nem passa de 100', () => {
@@ -282,9 +282,9 @@ describe('salvamento', () => {
     save.level = 4;
     save.attributes.rotacao = 77;
     save.mastery.rotacao = 33;
-    save.loadout.corPrancha = 'prancha-amarela';
+    save.look.board.deck = 'cor-amarelo';
     writeSave(store, save);
-    expect(loadSave(store)).toMatchObject({ level: 4, attributes: { rotacao: 77 }, mastery: { rotacao: 33 }, loadout: { corPrancha: 'prancha-amarela' } });
+    expect(loadSave(store)).toMatchObject({ level: 4, attributes: { rotacao: 77 }, mastery: { rotacao: 33 }, look: { board: { deck: 'cor-amarelo' } } });
   });
 
   it('sobrevive a dados inválidos e migra o salvamento antigo', () => {
@@ -301,13 +301,14 @@ describe('salvamento', () => {
     expect(weird.attributes.rotacao).toBe(0);
     expect(weird.unlockedLocations).not.toContain('nada');
     expect(weird.lastSetup.locationId).toBe('pico-leste'); // local bloqueado volta ao padrão
-    expect(weird.loadout.roupa).toBe('long-preto'); // item não liberado não é equipado
+    expect(weird.look.suit).toBe('neo-completo'); // item não liberado não é equipado
+    expect(weird.look.suitStyle.colors[0]).toBe('cor-preto');
     expect(weird.prefs.quality).toBe('alta');
 
     const legacy = memoryStore();
     legacy.setItem(LEGACY_SAVE_KEY, JSON.stringify({ level: 2, xp: 50, attributes: { rotacao: 40 } }));
     const migrated = loadSave(legacy);
-    expect(migrated).toMatchObject({ version: 2, level: 2, xp: 50, attributes: { rotacao: 40 } });
+    expect(migrated).toMatchObject({ version: 3, level: 2, xp: 50, attributes: { rotacao: 40 } });
   });
 
   it('ajusta a previsão aos limites do local', () => {
