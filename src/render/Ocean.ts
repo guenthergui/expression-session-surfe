@@ -162,7 +162,10 @@ export class Ocean {
           float foamP = foamPattern(vWPos.xz);
           float foamF = min(clamp((vFoam * 1.25 - (1.0 - foamP) * 1.05) * 2.4, 0.0, 1.0), vFoam * 1.5);
           diffuseColor.rgb = mix(diffuseColor.rgb, uFoamColor, foamF);`)
-        .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.85, foamF);')
+        .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+          // Ao longe, as ondulações menores que um pixel espalham o reflexo: mais rugoso, sem cintilação.
+          roughnessFactor = mix(roughnessFactor, 0.34, smoothstep(30.0, 260.0, length(vViewPosition)));
+          roughnessFactor = mix(roughnessFactor, 0.85, foamF);`)
         .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
           // Translucidez: a luz do sol atravessa a água fina da crista e do alto da face.
           vec3 toCam = normalize(cameraPosition - vWPos);

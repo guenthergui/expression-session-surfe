@@ -53,7 +53,7 @@ const fragmentShader = `
     // Interseção do raio com o plano das nuvens (unidades: quilômetros).
     vec2 p = dir.xz / dir.y * 1.5 + wind * time;
     float base = fbm(p * 0.9);
-    float d = smoothstep(1.0 - coverage, 1.15 - coverage * 0.6, base);
+    float d = smoothstep(0.92 - coverage, 1.05 - coverage * 0.6, base);
     if (d < 0.01) discard;
     // Iluminação: amostra deslocada para o sol dá o lado escuro de cada nuvem.
     float toward = fbm(p * 0.9 + normalize(sunDir.xz + 1e-4) * 0.08);
@@ -123,7 +123,7 @@ export class Clouds {
   apply(sunDir: THREE.Vector3, sunElevation: number, coverage: number, exposure: number) {
     const u = this.mat.uniforms;
     // Compensa a exposição da cena, para a nuvem ter o mesmo brilho do céu em volta.
-    u.intensity.value = 1.5 / Math.max(0.05, exposure);
+    u.intensity.value = 1.7 / Math.max(0.05, exposure);
     u.sunDir.value.copy(sunDir);
     u.coverage.value = coverage;
     const warm = THREE.MathUtils.clamp(1 - sunElevation / 35, 0, 1);

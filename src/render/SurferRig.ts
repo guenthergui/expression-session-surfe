@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GARMENTS, REGION_PLACE, activeGarments, colorOf, findItem, type BodyRole, type Look, type TattooRegion } from '../data/cosmetics';
 import { BODY } from '../anim/stance';
 import { drawPattern, drawTattoo } from './paint';
-import { hairTexture, skinTexture } from './textures';
+import { hairTexture, microNormalTexture, skinTexture } from './textures';
 
 // Surfista provisório, articulado e gerado por código, com 1,78 m de altura.
 // Não é uma malha contínua com skinning: cada segmento é uma peça rígida presa
@@ -276,6 +276,8 @@ export class SurferRig implements SurferAvatar {
       sheenRoughness: 0.7,
       clearcoat: 0,
       clearcoatRoughness: 0.35,
+      normalMap: SurferRig.poreNormal(),
+      normalScale: new THREE.Vector2(0.12, 0.12),
     });
     for (let i = 0; i < 2; i++) {
       this.garmentMats.push(new THREE.MeshPhysicalMaterial({ color: 0x16191d, roughness: 0.62, sheen: 0.4, sheenColor: new THREE.Color(0x6c7a88), clearcoat: 0.1, clearcoatRoughness: 0.4 }));
@@ -312,6 +314,27 @@ export class SurferRig implements SurferAvatar {
     });
   }
 
+  private static fabricTex: THREE.Texture | null = null;
+  private static poreTex: THREE.Texture | null = null;
+  private static fabricNormal() {
+    if (!SurferRig.fabricTex) {
+      const t = microNormalTexture(41, 2600).clone();
+      t.needsUpdate = true;
+      t.repeat.set(5, 5);
+      SurferRig.fabricTex = t;
+    }
+    return SurferRig.fabricTex;
+  }
+  private static poreNormal() {
+    if (!SurferRig.poreTex) {
+      const t = microNormalTexture(57, 2600).clone();
+      t.needsUpdate = true;
+      t.repeat.set(3, 3);
+      SurferRig.poreTex = t;
+    }
+    return SurferRig.poreTex;
+  }
+
   /** Parte do corpo com textura pintada própria (pele + roupa + tatuagens). */
   private seg(geo: THREE.BufferGeometry, role: Role, parent: THREE.Object3D, info: Pick<Painted, 'side' | 'torso' | 'len' | 'circ' | 'outerU'>): THREE.Mesh {
     const canvas = document.createElement('canvas');
@@ -335,6 +358,9 @@ export class SurferRig implements SurferAvatar {
       sheenColor: new THREE.Color(0xff9b7a),
       sheenRoughness: 0.7,
       clearcoatRoughness: 0.35,
+      // Relevo fino (trama do neoprene, poros da pele): quebra o reflexo, sobretudo molhado.
+      normalMap: SurferRig.fabricNormal(),
+      normalScale: new THREE.Vector2(0.22, 0.22),
     });
     const m = new THREE.Mesh(geo, mat);
     parent.add(m);
