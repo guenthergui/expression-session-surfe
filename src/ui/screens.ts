@@ -6,18 +6,19 @@ import { FAMILY_LABELS, findManeuver } from '../core/maneuvers';
 import { CONTROL_LEGEND } from '../core/controls';
 import { conditionModifier, conditionParts } from '../core/performance';
 import { spendPoint, xpToNext } from '../core/progression';
-import { FAMILIES, QUALITIES, type CameraMode, type Quality } from '../core/save';
+import { FAMILIES, QUALITIES, TUTORIAL_LEVELS, type CameraMode, type Quality, type TutorialLevel } from '../core/save';
 import { QUALITY } from '../render/Stage';
 import { ATTRIBUTE_KEYS, type PhaseMods } from '../core/types';
 import { persist, state } from '../game/state';
 import { bind, el, esc, signed } from './dom';
 import { icon } from './icons';
 import { lockerScreen, type LockerHost } from './locker';
+import { LEVEL_LABELS } from './training';
 
 export { lockerScreen };
 
 export interface MenuHost extends LockerHost {
-  go(screen: 'menu' | 'setup' | 'skills' | 'locker' | 'settings'): void;
+  go(screen: 'menu' | 'setup' | 'skills' | 'locker' | 'settings' | 'practice'): void;
   startHeat(setup: HeatSetup): void;
   preview(setup: HeatSetup): void;
   refreshLook(): void;
@@ -55,6 +56,7 @@ export function menuScreen(host: MenuHost): HTMLElement {
       </div>
       <div class="menu-buttons">
         <button class="btn" data-action="play">${icon('play')} Começar bateria <span class="kbd">Enter</span></button>
+        <button class="btn secondary" data-action="practice">${icon('wave')} Treinar aéreos</button>
         <button class="btn secondary" data-action="skills">${icon('chart')} Evolução do surfista${s.skillPoints ? ` <span class="kbd warn">${s.skillPoints} pts</span>` : ''}</button>
         <button class="btn secondary" data-action="locker">${icon('shirt')} Vestiário</button>
         <button class="btn secondary" data-action="settings">${icon('gear')} Configurações</button>
@@ -63,6 +65,7 @@ export function menuScreen(host: MenuHost): HTMLElement {
     </div>`);
   bind(root, {
     play: () => host.go('setup'),
+    practice: () => host.go('practice'),
     skills: () => host.go('skills'),
     locker: () => host.go('locker'),
     settings: () => host.go('settings'),
@@ -253,6 +256,12 @@ export function skillsScreen(host: MenuHost): HTMLElement {
   return root;
 }
 
+const TUTORIAL_TEXT: Record<TutorialLevel, string> = {
+  iniciante: 'Antes de cada onda, uma demonstração em câmera lenta mostra o desafio com as teclas no instante exato, os passos, os erros comuns e as dicas.',
+  intermediario: 'A mesma demonstração, com passos curtos e sem a lista de erros e dicas.',
+  experiente: 'Sem demonstração: depois da roleta aparece só a ficha do desafio. Dá para abrir o treino por ela.',
+};
+
 export function settingsScreen(host: MenuHost): HTMLElement {
   const root = el(`<div class="screen page"></div>`);
   const render = () => {
@@ -270,6 +279,14 @@ export function settingsScreen(host: MenuHost): HTMLElement {
           <div class="options">
             <button class="btn small secondary ${p.camera === 'lateral' ? 'selected' : ''}" aria-pressed="${p.camera === 'lateral'}" data-action="camera" data-mode="lateral">Lateral (onda inteira)</button>
             <button class="btn small secondary ${p.camera === 'proxima' ? 'selected' : ''}" aria-pressed="${p.camera === 'proxima'}" data-action="camera" data-mode="proxima">Próxima (corpo e prancha)</button>
+          </div>
+          <h3>Treino antes de cada onda</h3>
+          <div class="options">
+            ${TUTORIAL_LEVELS.map((l) => `<button class="btn small secondary ${p.tutorial === l ? 'selected' : ''}" aria-pressed="${p.tutorial === l}" data-action="tutorial" data-level="${l}">${LEVEL_LABELS[l]}</button>`).join('')}
+          </div>
+          <div class="sub muted">${TUTORIAL_TEXT[p.tutorial]}</div>
+          <div class="options">
+            <button class="btn small secondary ${p.skipTrained ? 'selected' : ''}" aria-pressed="${p.skipTrained}" data-action="skipTrained">Pular o treino de aéreos já treinados</button>
           </div>
           <h3>Som</h3>
           <div class="options">
@@ -296,6 +313,16 @@ export function settingsScreen(host: MenuHost): HTMLElement {
         state.save.prefs.camera = n.dataset.mode as CameraMode;
         persist();
         host.setCameraMode(state.save.prefs.camera);
+        render();
+      },
+      tutorial: (n) => {
+        state.save.prefs.tutorial = n.dataset.level as TutorialLevel;
+        persist();
+        render();
+      },
+      skipTrained: () => {
+        state.save.prefs.skipTrained = !state.save.prefs.skipTrained;
+        persist();
         render();
       },
       sound: (n) => {

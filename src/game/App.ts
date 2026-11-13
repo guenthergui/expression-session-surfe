@@ -5,29 +5,37 @@ import { cloneLook, type Look } from '../data/cosmetics';
 import { findBoard, findFin } from '../data/equipment';
 import { findLocation } from '../data/locations';
 import { clampSetup, generateWaveConditions, type HeatSetup } from '../core/conditions';
-import { KeyboardControls, RIDE_CODES, emptyInput } from '../core/controls';
+import { KeyReplay, KeyboardControls, RIDE_CODES, emptyInput, type SurferInput } from '../core/controls';
+import { challengeHint, guideFor, type GuidePhase } from '../core/maneuverGuide';
 import { HeatSession, type WaveEnd, type WaveResult } from '../core/heat';
 import type { CameraMode } from '../core/save';
 import { GRAB_LABELS, MANEUVERS, findManeuver } from '../core/maneuvers';
 import { applyHeatResult } from '../core/rewards';
 import type { Attributes, Conditions, Maneuver } from '../core/types';
 import { AutoPilot, planFor, type PilotPlan } from '../sim/autopilot';
+import type { TutorialLevel } from '../core/save';
 import { V_MIN_AIR } from '../sim/takeoff';
 import { DROP_TIME, WaveRun, type RunEvent, type RunParams } from '../sim/waveRun';
 import { World } from '../render/World';
 import { bind } from '../ui/dom';
-import { OUTCOME_TEXT, challengeCard, heatResultScreen, hud, introCard, popup, rideHud, waveResultCard, wheel, wheelTarget } from '../ui/heatViews';
+import { OUTCOME_TEXT, challengeCard, heatResultScreen, hud, introCard, popup, practiceResultCard, rideHud, waveResultCard, wheel, wheelTarget } from '../ui/heatViews';
+import { practiceScreen, trainingScreen, updateTraining, type TrainingFrame } from '../ui/training';
 import { lockerScreen, type LockerFocus, type LockerView } from '../ui/locker';
 import { confirmModal, helpModal, menuScreen, pauseMenu, settingsScreen, setupScreen, skillsScreen, type MenuHost } from '../ui/screens';
 import { AerialAnimator } from './AerialAnimator';
 import { persist, resetProgress, state } from './state';
 
-type Mode = 'menu' | 'setup' | 'skills' | 'locker' | 'settings' | 'intro' | 'roulette' | 'challenge' | 'ride' | 'waveResult' | 'heatResult';
+type Mode = 'menu' | 'setup' | 'skills' | 'locker' | 'settings' | 'practice' | 'intro' | 'roulette' | 'training' | 'challenge' | 'ride' | 'waveResult' | 'practiceResult' | 'heatResult';
 
 /** Telas de menu: a cena fica atrás da interface e é renderizada na resolução nativa. */
-const MENU_MODES: Mode[] = ['menu', 'setup', 'skills', 'locker', 'settings', 'heatResult'];
-/** Momentos da bateria em que Esc abre o menu de pausa. */
-const HEAT_MODES: Mode[] = ['intro', 'roulette', 'challenge', 'ride', 'waveResult'];
+const MENU_MODES: Mode[] = ['menu', 'setup', 'skills', 'locker', 'settings', 'practice', 'heatResult'];
+/** Momentos da bateria (e do treino) em que Esc abre o menu de pausa. */
+const HEAT_MODES: Mode[] = ['intro', 'roulette', 'training', 'challenge', 'ride', 'waveResult', 'practiceResult'];
+/** Telas em que Espaço também confirma (além de Enter). */
+const SPACE_MODES: Mode[] = ['intro', 'training', 'challenge', 'waveResult', 'practiceResult'];
+
+/** Câmera lenta da demonstração, da compressão até logo depois do pouso. */
+const SLOW_SCALE = 0.35;
 
 /** Enquadramento de cada categoria do vestiário: distância, inclinação e se o surfista está no ar. */
 const FOCUS: Record<LockerFocus, { dist: number; pitch: number; air: boolean; min: number; max: number }> = {
@@ -69,6 +77,14 @@ interface Ride {
   rideAwayAt: number | null;
   /** Cena de validação: não reinicia sozinha. */
   lab?: boolean;
+  /** Demonstração da tela de treino (câmera didática, câmera lenta e teclas na tela). */
+  training?: boolean;
+  /** Escala de tempo atual (câmera lenta suavizada). */
+  timeScale: number;
+  /** Última intenção mandada para a física. */
+  lastInput: SurferInput | null;
+  /** No treino, o piloto passa pelo teclado: só faz o que as setas fazem, e as teclas vão para a tela. */
+  replay: KeyReplay | null;
 }
 
 /** Atributos da demonstração: ninguém cai nos menus. */
@@ -102,6 +118,12 @@ export class App implements MenuHost {
   /** Bateria pausada (Esc): o tempo da onda para e os comandos ficam bloqueados. */
   private paused = false;
   private pauseEl: HTMLElement | null = null;
+  /** Modo de treino: aéreo escolhido e condições da onda de treino. */
+  private practice: { maneuver: Maneuver; conditions: Conditions } | null = null;
+  /** Tela de treino aberta. */
+  private training: { el: HTMLElement; maneuver: Maneuver; cache: { sig?: string; phase?: GuidePhase | null } } | null = null;
+  /** Câmera lenta na demonstração do treino. */
+  private slowMo = true;
   /** Câmera orbital do vestiário. */
   private showcase: { focus: LockerFocus; air: boolean; yaw: number; pitch: number; dist: number; base: number; target: THREE.Vector3 } | null = null;
 
@@ -125,7 +147,7 @@ export class App implements MenuHost {
 
   // ---------- Telas de menu ----------
 
-  go(screen: 'menu' | 'setup' | 'skills' | 'locker' | 'settings') {
+  go(screen: 'menu' | 'setup' | 'skills' | 'locker' | 'settings' | 'practice') {
     // Saindo do vestiário sem salvar: volta a aparência salva.
     if (this.mode === 'locker') this.world.setEquipment(this.setup.boardId, this.setup.finId, state.save.look);
     this.setPaused(false);
@@ -138,8 +160,10 @@ export class App implements MenuHost {
     this.demoConditions = null;
     this.labFreeze = null;
     this.world.camRig.override = null;
+    this.world.camRig.teach = false;
+    this.practice = null;
     this.clearUi();
-    const builders = { menu: menuScreen, setup: setupScreen, skills: skillsScreen, locker: lockerScreen, settings: settingsScreen };
+    const builders = { menu: menuScreen, setup: setupScreen, skills: skillsScreen, locker: lockerScreen, settings: settingsScreen, practice: () => this.practiceList() };
     this.screenEl = builders[screen](this);
     this.ui.appendChild(this.screenEl);
     this.primary = screen === 'menu' ? () => this.go('setup') : screen === 'setup' ? () => (this.screenEl as HTMLElement & { submit?: () => void }).submit?.() : null;
@@ -194,6 +218,8 @@ export class App implements MenuHost {
 
   private clearUi() {
     this.ui.innerHTML = '';
+    if (this.training) this.world.stage.camera.clearViewOffset();
+    this.training = null;
     this.screenEl = null;
     this.rideHudEl = null;
     this.hudEl = null;
@@ -330,7 +356,9 @@ export class App implements MenuHost {
         persist();
         this.music.setVolume(p.music);
       },
-      quit: () => confirmModal(this.ui, 'Sair da bateria?', 'A pontuação desta bateria não será salva.', 'Sair para o menu', () => this.go('menu')),
+      quit: () => this.practice
+        ? this.go('practice')
+        : confirmModal(this.ui, 'Sair da bateria?', 'A pontuação desta bateria não será salva.', 'Sair para o menu', () => this.go('menu')),
       click: () => this.click(),
     });
     this.ui.appendChild(this.pauseEl);
@@ -350,7 +378,7 @@ export class App implements MenuHost {
   }
 
   private mountHud() {
-    if (!this.heat) return;
+    if (!this.heat || this.practice) return;
     this.hudEl?.remove();
     // Depois da onda, o HUD continua mostrando a onda que acabou de ser surfada.
     const done = this.ride && !this.ride.demo ? this.ride.result : null;
@@ -390,15 +418,228 @@ export class App implements MenuHost {
     this.primary = null;
   }
 
+  /** Depois da roleta: treino (padrão) ou direto a ficha do desafio (Experiente ou aéreo já treinado). */
+  private afterSpin(m: Maneuver) {
+    const p = state.save.prefs;
+    const skip = p.tutorial === 'experiente' || (p.skipTrained && state.save.trained.includes(m.id));
+    if (skip) this.showChallenge(m);
+    else this.showTraining(m);
+  }
+
   private showChallenge(m: Maneuver) {
     const heat = this.heat!;
     this.mode = 'challenge';
     this.clearUi();
     this.mountHud();
+    this.world.camRig.teach = false;
+    // Vindo do treino, troca a demonstração do aéreo pela onda calma de fundo.
+    if (this.ride?.training) this.startDemo(true);
     const card = challengeCard(heat, m);
     this.ui.appendChild(card);
-    bind(card, { go: () => this.startRide(), respin: () => this.spin(true) }, () => this.click());
+    bind(card, { go: () => this.startRide(), respin: () => this.spin(true), train: () => this.showTraining(m) }, () => this.click());
     this.primary = () => this.startRide();
+  }
+
+  // ---------- Treino ----------
+
+  private practiceList(): HTMLElement {
+    const s = state.save;
+    const root = practiceScreen(s.unlockedManeuvers, s.trained, s.level);
+    bind(root, {
+      back: () => this.go('menu'),
+      pick: (n) => this.startPractice(findManeuver(n.dataset.id!) ?? MANEUVERS[0]),
+    }, () => this.click());
+    root.querySelectorAll<HTMLElement>('[data-action=pick]').forEach((n) => n.addEventListener('keydown', (e) => {
+      if (e.code === 'Enter' || e.code === 'Space') {
+        e.preventDefault();
+        e.stopPropagation();
+        n.click();
+      }
+    }));
+    return root;
+  }
+
+  /** Modo de treino: escolhe o aéreo, mostra a demonstração e surfa sem afetar a progressão. */
+  private startPractice(m: Maneuver) {
+    const conditions = generateWaveConditions(this.setup, Math.random);
+    this.practice = { maneuver: m, conditions };
+    this.heat = null;
+    this.showTraining(m);
+  }
+
+  /** Condições da onda que vai ser surfada (a demonstração usa a mesma onda). */
+  private upcomingConditions(): Conditions {
+    if (this.practice) return this.practice.conditions;
+    return this.heat ? this.heat.currentConditions : generateWaveConditions(this.setup, () => 0.5);
+  }
+
+  /**
+   * Tela de treino: a demonstração do aéreo na mesma onda que o jogador vai
+   * surfar, com câmera didática, câmera lenta e as teclas no instante exato.
+   */
+  private showTraining(m: Maneuver) {
+    const save = state.save;
+    const level: TutorialLevel = save.prefs.tutorial === 'experiente' ? 'intermediario' : save.prefs.tutorial;
+    this.mode = 'training';
+    this.clearUi();
+    this.mountHud();
+    const setup = this.practice ? this.setup : this.heat!.setup;
+    const el = trainingScreen({
+      maneuver: m,
+      guide: guideFor(m),
+      level,
+      practice: !!this.practice,
+      locationId: setup.locationId,
+      wave: this.heat ? this.heat.waveIndex + 1 : null,
+      respinAvailable: !!this.heat?.respinAvailable,
+      slow: this.slowMo,
+      skipTrained: save.prefs.skipTrained,
+      locked: !save.unlockedManeuvers.includes(m.id),
+    });
+    this.ui.appendChild(el);
+    this.training = { el, maneuver: m, cache: {} };
+    bind(el, {
+      go: () => this.leaveTraining(),
+      replay: () => this.startTrainingRide(),
+      slow: () => this.toggleSlow(),
+      respin: () => this.spin(true),
+      back: () => this.go('practice'),
+      level: (n) => {
+        save.prefs.tutorial = n.dataset.level as TutorialLevel;
+        persist();
+        if (save.prefs.tutorial === 'experiente' && !this.practice) this.showChallenge(m);
+        else this.showTraining(m);
+      },
+    }, () => this.click());
+    el.querySelector<HTMLInputElement>('[data-input=skip]')!.addEventListener('change', (e) => {
+      save.prefs.skipTrained = (e.target as HTMLInputElement).checked;
+      persist();
+    });
+    this.primary = () => this.leaveTraining();
+    this.startTrainingRide();
+  }
+
+  private toggleSlow() {
+    this.slowMo = !this.slowMo;
+    const b = this.training?.el.querySelector<HTMLElement>('[data-action=slow]');
+    b?.classList.toggle('selected', this.slowMo);
+    b?.setAttribute('aria-pressed', String(this.slowMo));
+  }
+
+  /** (Re)começa a demonstração do treino do início: remada, drop, aéreo, pouso e saída. */
+  private startTrainingRide() {
+    const t = this.training;
+    if (!t) return;
+    const setup = this.practice ? this.setup : this.heat!.setup;
+    const c = this.upcomingConditions();
+    this.world.setLocation(setup.locationId, c);
+    this.world.camRig.teach = true;
+    const ride = this.makeRide(t.maneuver, true, setup, demoAttributes(state.save.attributes), c);
+    ride.training = true;
+    ride.replay = new KeyReplay();
+    ride.pilot!.maxAttempts = 1;
+    ride.pilot!.dropAt = 0.9;
+    this.ride = ride;
+    t.cache.sig = undefined;
+    t.cache.phase = undefined;
+    const p = ride.run.position();
+    this.world.camRig.snap(this.tmpTarget.set(p.x, p.y, p.z), c.height);
+  }
+
+  /** "Estou pronto": registra o treino e começa a onda de verdade. */
+  private leaveTraining() {
+    const t = this.training;
+    if (t && !state.save.trained.includes(t.maneuver.id)) {
+      state.save.trained.push(t.maneuver.id);
+      persist();
+    }
+    this.world.camRig.teach = false;
+    if (this.practice) {
+      this.heat = new HeatSession(this.setup, { ...state.save.attributes }, state.save.unlockedManeuvers, state.save.discoveries, Math.random, { ...state.save.mastery });
+      this.heat.setChallenge(this.practice.maneuver);
+    }
+    this.startRide();
+  }
+
+  /** O que a demonstração está fazendo agora: passo, legenda e teclas. */
+  private trainingFrame(r: Ride): TrainingFrame {
+    const run = r.run;
+    const pilot = r.pilot!;
+    const airborne = run.state === 'airborne';
+    let keys = r.replay ? [...r.replay.keys] : [];
+    const released = run.takeoffAt !== null && run.t - run.takeoffAt < 0.3 && airborne ? ['Space'] : [];
+    const kmh = Math.round(run.speed * 3.6);
+    const want = Math.round(r.challenge.minSpeed * 3.6);
+    let phase: GuidePhase | null = null;
+    let caption = '';
+    let note = '';
+    if (run.state === 'paddling') {
+      phase = 'aproximacao';
+      caption = 'Remando: D para entrar na onda';
+      keys = run.t > pilot.dropAt - 0.4 ? ['KeyD'] : [];
+    } else if (run.state === 'dropping') {
+      phase = 'aproximacao';
+      caption = 'Drop: levantando na prancha';
+      keys = run.dropAt !== null && run.t - run.dropAt < 0.35 ? ['KeyD'] : [];
+    } else if (run.state === 'fallen') {
+      caption = 'Queda na demonstração: recomeçando';
+      keys = [];
+    } else if (run.state === 'finished') {
+      caption = 'Fim da onda';
+    } else if (airborne && run.air) {
+      const a = run.air;
+      const parts = [];
+      if (Math.abs(a.yaw) > 10) parts.push(`${Math.round(Math.abs(a.yaw))}° de giro`);
+      if (Math.abs(a.flip) > 30) parts.push(`flip ${Math.round(Math.abs(a.flip))}°`);
+      note = parts.join(' · ');
+      if (released.length) {
+        phase = 'pop';
+        caption = 'Pop! Soltou o Espaço no lip';
+      } else if (r.lastInput?.prep) {
+        phase = 'pouso';
+        caption = 'Preparando o pouso';
+      } else {
+        phase = 'ar';
+        caption = `No ar: ${r.challenge.name}`;
+      }
+    } else if (run.lastLanding && run.t - run.lastLanding.t < 3) {
+      phase = 'recuperacao';
+      const [txt] = OUTCOME_TEXT[run.lastLanding.result.outcome];
+      caption = `${txt[0]}${txt.slice(1).toLowerCase()} · siga surfando`;
+    } else {
+      const st = pilot.stage;
+      if (st === 'compress') {
+        phase = 'compressao';
+        caption = run.takeoffReady ? 'Comprimindo: PRONTO para soltar' : 'Comprimindo: segure o Espaço subindo';
+      } else if (st === 'descend' || st === 'approach') {
+        phase = 'posicao';
+        caption = st === 'descend' ? 'Descendo para a cavada' : 'Subindo a face rumo ao lip';
+      } else {
+        phase = 'aproximacao';
+        caption = 'Ganhando velocidade';
+      }
+      note = `${kmh} km/h${kmh >= want ? ' ✓' : ` (recomendado ${want})`}`;
+    }
+    if (this.slowMo && r.timeScale < 0.9) note = `${note ? `${note} · ` : ''}câmera lenta`;
+    return { phase, caption, keys, released, note };
+  }
+
+  /** Desloca o quadro para o surfista ficar no centro da área livre, ao lado do painel do treino. */
+  private centerTrainingView() {
+    const cam = this.world.stage.camera;
+    const panel = this.training?.el.querySelector('.training-panel')?.getBoundingClientRect();
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    if (panel && panel.right < w * 0.6 && panel.height > h * 0.5) cam.setViewOffset(w, h, -Math.round(panel.right / 2), 0, w, h);
+    else cam.clearViewOffset();
+  }
+
+  /** Escala de tempo alvo da demonstração: lenta da compressão até logo depois do pouso. */
+  private trainingScale(r: Ride): number {
+    if (!this.slowMo) return 1;
+    const run = r.run;
+    const key = r.pilot!.stage === 'compress' || run.state === 'airborne' || (run.lastLanding !== null && run.t - run.lastLanding.t < 0.5);
+    return key ? SLOW_SCALE : 1;
   }
 
   /** Parâmetros da física da onda: atributos, equipamento, cansaço e condições. */
@@ -431,7 +672,7 @@ export class App implements MenuHost {
     const run = new WaveRun(this.world.wave, this.runParams(attrs, setup, c, demo ? { rng: () => 0.5, ...extra } : extra));
     const animator = new AerialAnimator(this.world.wave, this.world.board, run);
     const pilot = demo ? new AutoPilot(plan ?? planFor(m)) : null;
-    return { challenge: m, run, animator, pilot, time: 0, demo, result: null, endAt: Infinity, rideAwayAt: null };
+    return { challenge: m, run, animator, pilot, time: 0, demo, result: null, endAt: Infinity, rideAwayAt: null, timeScale: 1, lastInput: null, replay: null };
   }
 
   private tmpTarget = new THREE.Vector3();
@@ -439,6 +680,7 @@ export class App implements MenuHost {
 
   private startRide() {
     const heat = this.heat!;
+    this.world.camRig.teach = false;
     const m = heat.currentManeuver!;
     this.mode = 'ride';
     this.clearUi();
@@ -448,7 +690,7 @@ export class App implements MenuHost {
     const ph = heat.physics();
     this.ride = this.makeRide(m, false, heat.setup, heat.attributes, c, { fatigue: ph.fatigue, conditions: ph.conditions, equip: ph.equip });
     this.keys.clear();
-    this.rideHudEl = rideHud(m);
+    this.rideHudEl = rideHud(m, { legend: state.save.prefs.tutorial === 'iniciante', practice: !!this.practice });
     this.ui.append(this.rideHudEl);
     this.lastMsg = '';
     const p = this.ride.run.position();
@@ -498,15 +740,23 @@ export class App implements MenuHost {
         return;
       }
     }
+    if (this.mode === 'training' && !e.repeat) {
+      if (e.code === 'KeyR') return this.startTrainingRide();
+      if (e.code === 'KeyL') return this.toggleSlow();
+    }
+    if (this.mode === 'challenge' && e.code === 'KeyT' && !e.repeat && this.heat?.currentManeuver) return this.showTraining(this.heat.currentManeuver);
     const rideKey = isRideCode(e.code) || e.code === 'KeyD';
-    if (rideKey && (this.mode === 'ride' || this.mode === 'intro' || this.mode === 'challenge' || this.mode === 'waveResult')) e.preventDefault();
+    if (rideKey && (this.mode === 'ride' || SPACE_MODES.includes(this.mode))) e.preventDefault();
     if (this.mode === 'ride' && this.ride && !this.ride.demo) {
+      if (e.code === 'KeyH' && !e.repeat) return this.toggleLegend();
       this.rideKey(e.code, e.repeat);
       return;
     }
     if ((e.code === 'Space' || e.code === 'Enter') && this.primary && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLSelectElement)) {
-      if (e.code === 'Space' && this.mode !== 'intro' && this.mode !== 'challenge' && this.mode !== 'waveResult') return;
+      if (e.code === 'Space' && !SPACE_MODES.includes(this.mode)) return;
       e.preventDefault();
+      // Tecla segurada não confirma a tela seguinte sozinha (repetição automática do teclado).
+      if (e.repeat) return;
       this.primary();
     }
     if (e.code === 'Escape' && this.mode === 'locker') (this.screenEl as HTMLElement & { cancel?: () => void }).cancel?.();
@@ -523,7 +773,16 @@ export class App implements MenuHost {
       }
       return;
     }
-    if (isRideCode(code)) this.keys.press(code);
+    if (isRideCode(code)) this.keys.press(code, repeat);
+  }
+
+  /** H mostra ou esconde a legenda de teclas durante a onda. */
+  private toggleLegend() {
+    const el = this.rideHudEl;
+    if (!el) return;
+    const legend = el.querySelector<HTMLElement>('[data-rh=legend]')!;
+    legend.hidden = !legend.hidden;
+    el.querySelector<HTMLElement>('[data-rh=legend-hint]')!.hidden = !legend.hidden;
   }
 
   private onKeyUp(e: KeyboardEvent) {
@@ -537,6 +796,7 @@ export class App implements MenuHost {
         case 'launch':
           this.sfx.launch();
           if (!r.demo) this.keys.markTakeoff();
+          r.replay?.takeoff();
           r.rideAwayAt = null;
           break;
         case 'land': {
@@ -548,7 +808,13 @@ export class App implements MenuHost {
           const [txt, cls] = OUTCOME_TEXT[e.landing.outcome];
           popup(this.ui, a.name, cls, '50%', '20%', true);
           setTimeout(() => popup(this.ui, ok ? `${txt} +${a.points}` : `${txt} ${e.landing.note}`, cls, '50%', '29%'), 220);
-          if (a.challenge) setTimeout(() => popup(this.ui, 'DESAFIO CUMPRIDO ×1,5', 'warn', '50%', '36%'), 500);
+          if (a.challenge) {
+            setTimeout(() => popup(this.ui, this.practice ? 'CONSEGUIU!' : 'DESAFIO CUMPRIDO ×1,5', 'warn', '50%', '36%'), 500);
+            this.markChallenge(true);
+          } else if (ok && !this.heat.wave.some((w) => w.challenge)) {
+            const hint = challengeHint(a.recognized, r.challenge);
+            if (hint) setTimeout(() => popup(this.ui, hint, 'info', '50%', '36%', false, 2400), 650);
+          }
           if (ok) r.rideAwayAt = r.run.t + e.landing.recovery + RIDE_AWAY_TIME;
           break;
         }
@@ -591,6 +857,14 @@ export class App implements MenuHost {
     }
   }
 
+  /** Marca o desafio no topo da tela como cumprido. */
+  private markChallenge(done: boolean) {
+    const chip = this.rideHudEl?.querySelector<HTMLElement>('[data-rh=challenge]');
+    if (!chip) return;
+    chip.classList.toggle('done', done);
+    chip.querySelector<HTMLElement>('[data-rh=chstate]')!.textContent = done ? '✓' : '○';
+  }
+
   private endWave(r: Ride, endedBy: WaveEnd, delay: number) {
     const result = this.heat!.resolveWave(endedBy);
     r.result = result;
@@ -601,6 +875,7 @@ export class App implements MenuHost {
 
   private showWaveResult() {
     const r = this.ride!.result!;
+    if (this.practice) return this.showPracticeResult(r);
     this.mode = 'waveResult';
     this.clearUi();
     this.mountHud();
@@ -610,6 +885,26 @@ export class App implements MenuHost {
     const next = () => (last ? this.finishHeat() : this.showIntro());
     bind(card, { next }, () => this.click());
     this.primary = next;
+  }
+
+  /** Resultado da onda de treino: nada é salvo, só mostra o que faltou. */
+  private showPracticeResult(r: WaveResult) {
+    const m = this.practice!.maneuver;
+    this.mode = 'practiceResult';
+    this.clearUi();
+    const landed = r.aerials.filter((a) => a.landing.outcome !== 'queda');
+    const last = landed[landed.length - 1];
+    const hint = r.challengeDone ? null : last ? challengeHint(last.recognized, m) : r.aerials.length ? `Pouso: ${r.aerials[r.aerials.length - 1].landing.note}` : m.howTo;
+    const card = practiceResultCard(r, hint);
+    this.ui.appendChild(card);
+    const again = () => {
+      this.practice!.conditions = generateWaveConditions(this.setup, Math.random);
+      this.leaveTraining();
+    };
+    bind(card, { again, demo: () => this.showTraining(m), list: () => this.go('practice'), menu: () => this.go('menu') }, () => this.click());
+    this.primary = again;
+    this.heat = null;
+    this.startDemo(true);
   }
 
   private finishHeat() {
@@ -645,12 +940,17 @@ export class App implements MenuHost {
     const r = this.ride;
     if (r) {
       // Nas cenas de validação o tempo da onda pode ficar congelado num instante.
-      const rideDt = this.labFreeze !== null && r.time >= this.labFreeze ? 0 : dt;
+      if (r.training) r.timeScale += (this.trainingScale(r) - r.timeScale) * (1 - Math.exp(-dt * 7));
+      const rideDt = this.labFreeze !== null && r.time >= this.labFreeze ? 0 : dt * r.timeScale;
       r.time += rideDt;
       const run = r.run;
       if (rideDt > 0) {
-        if (r.pilot) run.setInput(r.pilot.input(run));
-        else run.setInput(r.result ? emptyInput() : this.keys.read(run.state === 'airborne'));
+        const airborne = run.state === 'airborne';
+        if (r.pilot) {
+          const want = r.pilot.input(run);
+          r.lastInput = r.replay ? r.replay.feed(want, airborne) : want;
+        } else r.lastInput = r.result ? emptyInput() : this.keys.read(airborne);
+        run.setInput(r.lastInput);
       }
       run.update(rideDt);
       this.handleEvents(r);
@@ -662,7 +962,14 @@ export class App implements MenuHost {
         if (run.state === 'riding') this.sfx.setSurf(this.world.wave.power + run.speedFactor * 45, this.world.wave.windSpeed);
       }
       this.world.update(rideDt, r.time, f.boardPos.x);
-      if (r.demo && !r.lab && this.demoOver(r)) this.startDemo(!!this.heat);
+      if (r.training && this.training) {
+        updateTraining(this.training.el, this.trainingFrame(r), this.training.cache);
+        this.centerTrainingView();
+      }
+      if (r.demo && !r.lab && this.demoOver(r)) {
+        if (r.training) this.startTrainingRide();
+        else this.startDemo(!!this.heat);
+      }
       if (!r.demo && r.result && r.time > r.endAt && this.mode === 'ride') this.showWaveResult();
     } else {
       this.world.update(dt, 0, 0);
@@ -693,7 +1000,7 @@ export class App implements MenuHost {
     if (w.t > w.dur + 0.45) {
       const m = w.maneuver;
       this.wheelState = null;
-      this.showChallenge(m);
+      this.afterSpin(m);
     }
   }
 
@@ -706,6 +1013,9 @@ export class App implements MenuHost {
     const kmh = Math.round(run.speed * 3.6);
     q('speed').style.width = `${Math.round(Math.min(1, run.speed / Math.max(1, run.vMax)) * 100)}%`;
     q('kmh').textContent = `${kmh} km/h${run.accelerating ? ' ▲' : ''}`;
+    const target = q('target');
+    target.style.left = `${Math.round(Math.min(1, r.challenge.minSpeed / Math.max(1, run.vMax)) * 100)}%`;
+    target.classList.toggle('ok', run.speed >= r.challenge.minSpeed);
     q('crit').style.width = `${Math.round(Math.min(1, Math.max(0, run.criticality)) * 100)}%`;
     q('gap').textContent = run.dropAt === null ? '' : `quebra a ${Math.max(0, Math.round(run.breakGap))} m`;
     q('comp').style.width = `${Math.round(run.compression * 100)}%`;

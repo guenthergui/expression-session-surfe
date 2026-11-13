@@ -169,6 +169,7 @@ completo da bateria funciona com o piloto automático.
 | A1 | **Espaço segurado pula telas sem intenção.** `onKey` não ignora a repetição automática do teclado (`e.repeat`). Segurar Espaço em "Condições da onda" gira a roleta e, quando a ficha do desafio aparece, a repetição já dispara "Remar!", pulando a explicação. O mesmo acontece no resultado da onda. | Comprovado no código (`App.onKey`) |
 | A2 | **Tecla segurada vaza para dentro da onda.** Na onda, `rideKey` aceita eventos repetidos; se o jogador ainda segura Espaço ao entrar, a repetição registra a tecla de novo depois do `keys.clear()` e o surfista começa comprimindo sem ter apertado. | Comprovado no código (`App.rideKey` + `KeyboardControls.press`) |
 | A3 | **Não existe aprendizagem antes da onda.** A ficha do desafio é um bloco de texto técnico (graus, m/s, ângulos). Não mostra o momento de cada tecla nem uma demonstração, e a legenda no HUD lista todas as teclas ao mesmo tempo. Para quem começa, o desafio sorteado é difícil de entender. | Comprovado (telas atuais) |
+| A5 | **Cinco aéreos não saem só com o teclado.** Encontrado durante o trabalho, com um teste que passa o piloto automático pelo mesmo caminho do teclado (só as oito direções das setas). Na compressão, `↑` virava sempre uma subida de 45° e, sem setas, a gravidade puxava a linha para baixo. Com isso, a subida ficava entre 46° e 56° e o 360 Air (pede 62° ou mais), o Alley-oop (menos de 40°), o Backflip, o Rodeo Flip e o Japan Air (precisam da altura de uma subida vertical) não eram reconhecidos. Os testes antigos não pegavam isso porque o piloto mandava ângulos analógicos que o teclado não produz. | Comprovado por teste (`tests/training.test.ts`) |
 | A4 | **Durante a onda, pouco retorno sobre o desafio.** O desafio aparece só como texto no rodapé; quando o jogador pousa outro aéreo, nada diz o que faltou para ser o desafio. | Comprovado |
 
 ### Médios
@@ -207,7 +208,7 @@ completo da bateria funciona com o piloto automático.
 
 ## 8. Plano desta passada
 
-1. Corrigir A1 e A2 (teclas repetidas).
+1. Corrigir A1 e A2 (teclas repetidas) e A5 (compressão no teclado).
 2. Biblioteca de manobras derivada da ficha, dos controles e do piloto (resolve
    a divergência entre tutorial e comandos).
 3. Tela de treino antes de cada onda, com demonstração do piloto, câmera
@@ -221,3 +222,35 @@ completo da bateria funciona com o piloto automático.
 Itens marcados como hipótese (M5, M6, B4) ficam para validação com o jogo
 rodando na máquina do usuário. O tubo, o modelo GLB e o replay ficam como
 próximos passos, porque exigem sistemas ou recursos novos.
+
+---
+
+## 9. O que foi feito nesta passada
+
+| Item | Mudança | Como foi verificado |
+|---|---|---|
+| A1, A2 | Telas ignoram a repetição automática do teclado; na onda, uma tecla segurada de antes só entra com um toque novo | Teste de `KeyboardControls` e captura do fluxo da bateria (Espaço repetido não pulou o treino) |
+| A5 | Na compressão, `↑` sobe a 80°, `↓` abre para 20° e, sem nenhum dos dois, a linha fica travada (como a documentação de `takeoff.ts` já dizia). Teclas iguais; só o efeito de `↑`/`↓` comprimindo mudou | Os 22 aéreos saem com o piloto passando pelo teclado, em 3 condições de cada um dos 3 locais |
+| A3 | Tela de treino antes de cada onda, com demonstração do piloto na mesma onda, câmera didática, câmera lenta (0,35×), teclas no instante exato, passo a passo destacado, bônus, erros comuns e dicas | Capturas no navegador (Chromium com SwiftShader) e testes da biblioteca |
+| Catálogo | `core/maneuverGuide.ts`: guia de cada aéreo derivado da ficha, das teclas e do plano do piloto | Testes: só teclas que existem; teclas do ar batem com o plano; dicas aparecem só quando o aéreo não foi o desafio |
+| A4, M2 | Desafio no topo da onda com ✓, marca da velocidade recomendada no medidor, dica do que faltou depois de um pouso que não foi o desafio, legenda de teclas com `H` | Captura da onda e testes de `challengeHint` |
+| M3 | Modo de treino no menu, sem afetar salvamento | Teste: o salvamento não muda |
+| Preferências | Iniciante, Intermediário, Experiente e "pular aéreos já treinados" (salvamento validado) | Teste de `sanitizeSave` |
+| M4 | Câmera didática só na tela de treino; os modos Lateral e Próxima do jogador não mudaram | Capturas |
+| M1 | README e `docs/design.md` atualizados para o sistema atual | Revisão |
+
+Testes: de 174 para 187, todos passando; `tsc` sem erros; build de produção ok.
+
+### Ainda não feito (e por quê)
+
+- **Gráficos (oceano, onda, cenário), física fina da prancha, animações e
+  câmeras de jogo:** a auditoria não achou defeito comprovado nesses sistemas
+  que justificasse mexer neles às cegas. Melhorias visuais precisam ser vistas
+  em GPU real, com o jogo rodando na máquina do usuário; as capturas no
+  container usam renderização por software. Ficam como próxima etapa, com
+  validação visual.
+- **Desempenho (M5, M6):** precisa de medição de FPS em GPU real antes de
+  qualquer mudança.
+- **Tubo, modelo GLB, replay:** exigem sistemas ou recursos novos.
+- **Seção 9 do pedido em diante (interface, UX e identidade visual):** a
+  mensagem chegou cortada nesse ponto; nada dessa parte foi presumido.

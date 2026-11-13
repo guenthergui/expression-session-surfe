@@ -131,6 +131,16 @@ export class HeatSession {
     return this.current;
   }
 
+  /**
+   * Fixa o aéreo da onda sem a roleta. Só o modo de treino usa: lá o jogador
+   * escolhe o aéreo, e o resultado nunca vai para o salvamento.
+   */
+  setChallenge(m: Maneuver): Maneuver {
+    this.current = m;
+    this.wave = [];
+    return m;
+  }
+
   /** Um giro extra por bateria, sem repetir o desafio atual se houver outro. */
   respin(): Maneuver | null {
     if (!this.respinAvailable || !this.current) return null;

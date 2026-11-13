@@ -52,10 +52,12 @@ export function planFor(def: ManeuverDef): PilotPlan {
   };
 }
 
+export type PilotPhase = 'speed' | 'descend' | 'approach' | 'compress' | 'air' | 'recover';
+
 export class AutoPilot {
   /** Momento em que o piloto aperta D. */
   dropAt = 0.8;
-  private phase: 'speed' | 'descend' | 'approach' | 'compress' | 'air' | 'recover' = 'speed';
+  private phase: PilotPhase = 'speed';
   private flipping = false;
   private extPressedAt: number | null = null;
   /** Quantos aéreos o piloto já tentou nesta onda. */
@@ -64,6 +66,11 @@ export class AutoPilot {
   maxAttempts = Infinity;
 
   constructor(public plan: PilotPlan) {}
+
+  /** Etapa atual do plano (a tela de treino destaca o passo correspondente). */
+  get stage(): PilotPhase {
+    return this.phase;
+  }
 
   setPlan(plan: PilotPlan) {
     this.plan = plan;
