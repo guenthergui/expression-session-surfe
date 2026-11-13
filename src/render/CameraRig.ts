@@ -8,6 +8,15 @@ import type { CameraMode } from '../core/save';
 //   lateral:  enquadra a onda inteira e o espaço aéreo (padrão)
 //   proxima:  mais perto e mais baixa, para ver o corpo e a prancha
 
+type Preset = { base: number; perWave: number; perHeight: number; height: number; side: number };
+
+/**
+ * Câmera didática da tela de treino: mais perto, um pouco mais alta e mais de
+ * lado, para ver ao mesmo tempo o corpo, a prancha e o lip. Não substitui a
+ * escolha do jogador; só vale enquanto a demonstração está na tela.
+ */
+const TEACH: Preset = { base: 3.9, perWave: 0.75, perHeight: 1.0, height: 0.8, side: 0.5 };
+
 const PRESETS: Record<CameraMode, { base: number; perWave: number; perHeight: number; height: number; side: number }> = {
   lateral: { base: 5.8, perWave: 1.1, perHeight: 1.2, height: 1.0, side: 0.32 },
   proxima: { base: 3.6, perWave: 0.6, perHeight: 0.9, height: 0.55, side: 0.42 },
@@ -15,6 +24,8 @@ const PRESETS: Record<CameraMode, { base: number; perWave: number; perHeight: nu
 
 export class CameraRig {
   mode: CameraMode = 'lateral';
+  /** Enquadramento didático (tela de treino). */
+  teach = false;
   /** Quando definido, substitui o enquadramento (usado pelas cenas de validação). */
   override: ((camera: THREE.PerspectiveCamera) => void) | null = null;
   private pos = new THREE.Vector3(0, 3, 14);
@@ -37,7 +48,7 @@ export class CameraRig {
       this.override(this.camera);
       return;
     }
-    const p = PRESETS[this.mode];
+    const p = this.teach ? TEACH : PRESETS[this.mode];
     // Distância mínima para caber o surfista (1,8 m) mais a altura do voo no campo de visão vertical.
     const halfFov = THREE.MathUtils.degToRad(this.camera.fov / 2);
     const fit = (height + 2.2) / Math.tan(halfFov) * 0.75;

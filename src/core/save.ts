@@ -19,6 +19,13 @@ export const FAMILIES: ManeuverFamily[] = ['aereo', 'rotacao', 'grab', 'combo', 
 export type Quality = 'baixa' | 'media' | 'alta' | 'ultra';
 export type CameraMode = 'lateral' | 'proxima';
 export const QUALITIES: Quality[] = ['baixa', 'media', 'alta', 'ultra'];
+/**
+ * Nível do treino antes de cada onda: Iniciante mostra a demonstração com
+ * todos os passos; Intermediário, a demonstração com textos curtos;
+ * Experiente pula o treino e vai direto para a ficha do desafio.
+ */
+export type TutorialLevel = 'iniciante' | 'intermediario' | 'experiente';
+export const TUTORIAL_LEVELS: TutorialLevel[] = ['iniciante', 'intermediario', 'experiente'];
 
 export interface Records {
   bestHeatScore: number;
@@ -42,6 +49,9 @@ export interface Prefs {
   /** Volume da música tema, de 0 (desligada) a 100. */
   music: number;
   camera: CameraMode;
+  tutorial: TutorialLevel;
+  /** Pula o treino de aéreos que o jogador já treinou. */
+  skipTrained: boolean;
 }
 
 export interface SaveData {
@@ -65,6 +75,8 @@ export interface SaveData {
   stats: Stats;
   prefs: Prefs;
   lastSetup: HeatSetup;
+  /** Aéreos cuja tela de treino o jogador já confirmou. */
+  trained: string[];
 }
 
 /** Armazenamento mínimo: localStorage no jogo, um objeto em memória nos testes. */
@@ -91,8 +103,9 @@ export function defaultSave(): SaveData {
     discoveries: [],
     records: { bestHeatScore: 0, bestWaveScore: 0, bestCombo: 0, heatsPlayed: 0, bestExecution: 0 },
     stats: { waves: 0, landed: 0, falls: 0, perfects: 0 },
-    prefs: { quality: 'alta', sound: true, music: 60, camera: 'lateral' },
+    prefs: { quality: 'alta', sound: true, music: 60, camera: 'lateral', tutorial: 'iniciante', skipTrained: false },
     lastSetup: defaultSetup(),
+    trained: [],
   };
 }
 
@@ -200,8 +213,11 @@ export function sanitizeSave(raw: unknown): SaveData {
       sound: typeof pr.sound === 'boolean' ? pr.sound : d.prefs.sound,
       music: int(pr.music, d.prefs.music, 0, 100),
       camera: pr.camera === 'proxima' ? 'proxima' : 'lateral',
+      tutorial: TUTORIAL_LEVELS.includes(pr.tutorial as TutorialLevel) ? (pr.tutorial as TutorialLevel) : d.prefs.tutorial,
+      skipTrained: typeof pr.skipTrained === 'boolean' ? pr.skipTrained : d.prefs.skipTrained,
     },
     lastSetup,
+    trained: ids(r.trained, MANEUVERS.map((m) => m.id), []),
   };
   out.look = sanitizeLook(legacy ? legacy.look : r.look, out);
   return out;

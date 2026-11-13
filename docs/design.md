@@ -1,4 +1,4 @@
-# Design e regras: Expression Session 3D, versão 0.1
+# Design e regras: Expression Session 3D
 
 ## Unidades e eixos
 
@@ -40,12 +40,10 @@ surfista fica lento, a quebra o alcança (`fallen`, "a onda fechou").
   (8,2 + Força × 0,012 + impulsão do equipamento × 0,08 + potência × 0,008 m/s).
   Solto, volta devagar ao cruzeiro. Não acelera deitado. Em pé, o surfista sobe e
   desce a face numa linha; cada subida chega ao lip.
-- **Decolagem (espaço)**: aceita com pelo menos 6,3 m/s e a até 0,45 s do pico da
-  subida (o lip). No pico é Perfect (±0,1 s + Controle aéreo), até 0,24 s é Good
-  e depois Late. Cedo demais, devagar demais ou longe do lip, aparece uma
-  explicação e nada é gasto.
+- **Decolagem (espaço)**: ver "Decolagem, voo e pouso" abaixo. Longe do lip,
+  devagar demais ou descendo, aparece uma explicação e nada é gasto.
 - **Velocidade conta**: decolar mais rápido sobe mais alto e pousa mais perto do
-  lip, e soma até +5 na chance (componente A).
+  lip, e a velocidade entra na nota de execução.
 
 ## Base do surfista
 
@@ -57,84 +55,86 @@ base (bico, cima, frente do corpo) e convertidas para a prancha numa função s�
 Nos giros o corpo e a prancha giram livremente; depois do pouso, rotações de 180°
 e 540° completam o giro na água e voltam à base, sem virar de uma vez.
 
-## Trajetória (`src/sim/aerial.ts`)
+## Decolagem, voo e pouso (`src/sim/takeoff.ts`, `airPhysics.ts`, `landing.ts`)
 
-1. **Voo**: balístico com gravidade de 9,81 m/s². O tempo de voo é fixo pela
-   sequência de comandos (o pouso tem um tempo-alvo), e a decolagem define o
-   ponto de pouso: uma impulsão Perfect pousa perto da crista e por isso sobe
-   mais alto no mesmo tempo. Uma impulsão fraca pousa mais baixo, e o voo sai
-   mais baixo.
-2. **Saída** (1,7 s): desce a face. Rotações de 180 e 540 pousam de costas e
-   completam o giro na água.
+> As seções antigas sobre `sim/aerial.ts`, `core/timing.ts` (janelas
+> Perfect/Good/Late/Miss) e a "chance de pouso" por sorteio descreviam a versão
+> 0.1 e foram removidas: desde o PR #2 o aéreo é físico, não uma sequência de
+> comandos com janelas de tempo.
 
-## Comandos (`src/core/timing.ts`)
-
-| Classe | Janela | Valor |
-|---|---|---|
-| Perfect | ±(55 ms + 0,45 ms × Controle aéreo) | 1 |
-| Good | ±130 ms | 0,75 |
-| Late | ±260 ms, cedo ou tarde | 0,4 |
-| Miss | tecla errada ou nada | 0 |
-
-Sequência gerada pelos componentes: `Espaço` (decolagem, essencial), ajuste de
-direção nos aéreos sem giro, uma seta por meia volta (essencial; no flip
-alterna `↑` e a direção), o grab (`Z` ou `X`, opcional) e `↓` (pouso, essencial).
-
-A animação mostra o estado real: a rotação só avança com os comandos de
-rotação certos (Late gira 150° em vez de 180°), o grab só acontece se o comando
-foi feito, e uma rotação incompleta chega torta à água.
-
-## Chance de pouso (`src/core/performance.ts`)
-
-```
-P = clamp(40 + k × (S − D) + E + C + L + A, 5, 97)     k = 0,5 se S ≥ D, 0,7 se S < D
-```
-
-| Parte | O que é | Faixa |
-|---|---|---|
-| S | média ponderada dos atributos relevantes + domínio da família (até +10) − cansaço | 0 a 110 |
-| D | dificuldade da manobra | 15 a 92 |
-| E | (prancha + quilhas) por fase × peso da fase × 1,5; Wildcard +6 em experimentais | −6 a +9 |
-| C | altura (ideal 1,5 m), potência, vento e seção; leitura de onda reduz só a parte negativa | −15 a +12 |
-| L | execução: −25 + 60 × qualidade dos comandos | −25 a +35 |
-| A | velocidade de aproximação na decolagem (0 no cruzeiro, 1 no máximo) × 5 | 0 a +5 |
-
-A execução é o maior peso (o teste "a execução é o fator principal" garante isso).
-A rolagem de 0 a 100 decide o pouso: abaixo de P é pouso; margem menor que 10 é
-instável; margem de 25 ou mais com execução de 80% ou mais é limpo. Um Miss
-em comando essencial é queda, seja qual for P.
-
-Exemplos com o personagem inicial, mar médio e execução perfeita: Straight Air
-cerca de 85%, Air Reverse cerca de 72%, Frontside 360 cerca de 56%, Rodeo Flip
-cerca de 37%. Com execução de 50%, essas chances caem cerca de 30 pontos.
+- **Compressão** (segurar `Espaço`): comprime as pernas em 0,3 s. `←`/`→`
+  carregam o giro. `↑` deixa a subida mais vertical (80°), `↓` abre a diagonal
+  (20°) e, sem nenhum dos dois, a linha fica travada na direção em que estava.
+- **Pop** (soltar `Espaço`): precisa estar subindo, a até 0,7 m abaixo do lip e
+  com pelo menos 4,6 m/s. A saída vertical soma a subida na face (velocidade ×
+  ângulo), as pernas (impulsão, compressão e tempo do pop) e o lip (mais forte
+  na zona crítica). Cada aéreo tem uma velocidade e um ângulo de subida
+  recomendados na ficha; fora deles, a execução perde nota.
+- **Voo**: balístico. `←`/`→` giram (a oposta freia), `↑` faz o flip (só vale
+  um toque novo depois do pop), `↓` prepara o pouso, `Z X C V A` são os grabs e
+  `S` as extensões.
+- **Pouso**: compara alinhamento, flip fechado, grab solto, pés no deck,
+  pernas preparadas, local e impacto, com tolerância maior para quem tem mais
+  Equilíbrio. Resultado: limpo, concluído, instável ou queda.
 
 ## Pontuação (`src/core/scoring.ts`)
 
 ```
-Pontos = base × execução × pouso × dificuldade × novidade × combo
+pontos do aéreo = base × execução × pouso × dificuldade × novidade × sequência × desafio
+pontos da onda  = soma dos aéreos × combo (× 0,85 se a onda terminou em queda)
+total da bateria = soma das 5 ondas
 ```
 
-- Execução: 0,6 + 0,6 × qualidade + Estilo/100 × 0,15 (−0,2 sem o grab), de 0,5 a 1,4.
-- Pouso: limpo 1,25, concluído 1, instável 0,7, queda 0.
-- Dificuldade: 1 + D/100, de 1 a 2.
-- Novidade: 1,5 na primeira experimental completada; senão 1/(1 + 0,3 × repetições na bateria), mínimo 0,5.
-- Combo: 1 + 0,25 × (combo − 1), até 2,5. Queda zera; instável mantém; limpo com 90% de execução soma 2; o resto soma 1.
+- Só aéreos pontuam. Curvas, cavadas e batidas são o caminho até eles.
+- Desafio da onda (o aéreo sorteado pela roleta): ×1,5, uma vez por onda.
+- Sair surfando 1 s depois do pouso: +10% no aéreo.
+- Sequência: cada aéreo completado depois do primeiro na mesma onda soma 0,15,
+  até ×1,6.
+- Novidade: 1,5 na primeira vez de um aéreo experimental; repetir rende menos.
+- Aéreo ainda não liberado pelo nível vale ×0,6.
+- Combo entre ondas: até ×2,5. Queda zera; instável mantém.
 
 ## Progressão (`src/core/progression.ts`, `src/core/rewards.ts`)
 
 - XP por onda: pontos/40 + D/2; numa queda, 10 + D/5. Bateria completa dá +40.
-- Próximo nível: 100 + 100 × nível. Cada nível dá 4 pontos de habilidade e cada bateria dá 1.
-- Domínio técnico por família, de 0 a 100, sobe a cada onda (mais nos pousos).
-- Nível 2 libera Air Reverse Indy, os 360 e cosméticos; nível 3 libera o 360 Mute,
-  o 540 Melon e a Piscina Lagoa Azul; nível 4 libera mais cosméticos.
-- Equipamentos já têm o campo de desbloqueio por nível; nesta versão todos começam liberados.
+- Próximo nível: 100 + 100 × nível. Cada nível dá 4 pontos de habilidade e cada
+  bateria dá 1.
+- Domínio técnico por família, de 0 a 100, sobe a cada onda.
+- Os aéreos, locais, pranchas e quilhas são liberados pelo campo `unlockLevel`
+  de cada ficha.
 
 ## Salvamento (`src/core/save.ts`)
 
-Chave `expression-session-save-v2` no localStorage, com `version: 2`. Cada campo
-é validado e volta ao padrão se for inválido. O salvamento da versão 2D
-(`-v1`) é migrado automaticamente. A tela de configurações permite reiniciar a
-progressão, com confirmação.
+Chave `expression-session-save-v3` no localStorage, com migração das versões
+anteriores (`-v2` e a 2D `-v1`). Cada campo é validado e volta ao padrão se for
+inválido. Guarda também as preferências do treino (`prefs.tutorial`,
+`prefs.skipTrained`) e os aéreos já treinados (`trained`).
+
+## Treino antes da onda e modo de treino
+
+Fluxo da bateria: condições → roleta → **treino** → onda → resultado.
+
+- A tela de treino mostra local, número da onda, o aéreo sorteado, dificuldade,
+  passo a passo com as teclas, quando decolar, bônus que valem, erros comuns e
+  dicas. Atrás dela roda uma **demonstração na mesma onda** que o jogador vai
+  surfar: o piloto automático (`sim/autopilot.ts`) faz o aéreo passando pelo
+  mesmo caminho do teclado (`KeyReplay` em `core/controls.ts`), então só faz o
+  que as setas conseguem fazer, e as teclas mostradas no canto são as que
+  produziram o movimento. Câmera didática (`CameraRig.teach`) e câmera lenta
+  (0,35×) da compressão até logo depois do pouso.
+- Os textos vêm de `core/maneuverGuide.ts`, derivados da ficha do aéreo, das
+  teclas do jogo e do plano do piloto. Um teste garante que, com as teclas
+  mostradas, cada um dos 22 aéreos sai em todos os locais.
+- Níveis: **Iniciante** (tudo), **Intermediário** (passos curtos),
+  **Experiente** (pula para a ficha do desafio, com o botão "Ver treino").
+  Opção de pular o treino de aéreos já treinados.
+- Na onda: o desafio fica no topo e ganha ✓ quando é cumprido; o medidor de
+  velocidade marca a velocidade recomendada; se o aéreo pousado não foi o
+  desafio, uma dica diz o que faltou (`challengeHint`). `H` mostra ou esconde a
+  legenda de teclas.
+- **Modo de treino** (menu → Treinar aéreos): escolhe um aéreo liberado, vê a
+  demonstração e surfa quantas ondas quiser. Usa uma `HeatSession` própria que
+  nunca vai para o salvamento: nível, XP, recordes e domínio não mudam.
 
 ## Animação e biomecânica (versão 0.2)
 
@@ -212,4 +212,4 @@ os quatro níveis gráficos. O painel não existe na versão de produção.
   água. A queda é animada; só o leash é simulado.
 - **Desempenho**: o oceano é recalculado na CPU a cada quadro. Mover esse cálculo
   para um shader de vértices seria a maior otimização restante.
-- **Som**: efeitos sintetizados simples, sem música.
+- **Som**: efeitos sintetizados simples e uma música tema.

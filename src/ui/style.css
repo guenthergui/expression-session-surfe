@@ -1341,3 +1341,375 @@ table.summary th {
   box-shadow: var(--shadow);
   z-index: 20;
 }
+
+/* ---------- Treino antes da onda ---------- */
+
+.training {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.training > * {
+  pointer-events: auto;
+}
+
+.training-panel {
+  position: absolute;
+  left: 16px;
+  top: 96px;
+  bottom: 16px;
+  width: min(460px, calc(100vw - 32px));
+  overflow: auto;
+  padding: var(--sp-4) var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.training-head {
+  display: grid;
+  grid-template-columns: 68px 1fr;
+  gap: 14px;
+  align-items: center;
+}
+
+.training-head .maneuver-name {
+  font-size: 34px;
+}
+
+.glyph {
+  width: 68px;
+  height: 68px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 14px;
+  border: 1px solid var(--line);
+}
+
+.training-meta {
+  font-size: var(--fs-small);
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.stars {
+  display: inline-flex;
+  gap: 3px;
+  vertical-align: middle;
+}
+
+.pip {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.pip.on {
+  background: var(--warn);
+}
+
+.training-rule {
+  font-size: var(--fs-small);
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  background: rgba(255, 154, 60, 0.12);
+  border: 1px solid rgba(255, 154, 60, 0.35);
+}
+
+.training-desc,
+.training-when-text {
+  font-size: var(--fs-small);
+  color: var(--muted);
+}
+
+.training-when {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.step {
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  /* Espaço para os botões presos no pé do painel. */
+  scroll-margin: 8px 0 150px;
+}
+
+.step.active {
+  background: rgba(57, 200, 214, 0.14);
+  border-color: rgba(57, 200, 214, 0.6);
+}
+
+.step-n {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-content: center;
+  font-size: var(--fs-label);
+  font-weight: 800;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.step.active .step-n {
+  background: var(--aqua);
+  color: #062027;
+}
+
+.step-title {
+  font-weight: 700;
+  font-size: var(--fs-small);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.step-keys {
+  font-weight: 500;
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.step-text {
+  font-size: var(--fs-small);
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.training-panel details summary {
+  cursor: pointer;
+  list-style: revert;
+}
+
+.training-list {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: var(--fs-small);
+  color: var(--muted);
+  display: grid;
+  gap: 3px;
+}
+
+.training-levels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-size: var(--fs-small);
+}
+
+.check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: var(--fs-small);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+/* Os botões ficam sempre à vista, presos no pé do painel. */
+.training-panel .actions {
+  justify-content: flex-start;
+  margin-top: auto;
+  position: sticky;
+  bottom: calc(-1 * var(--sp-4));
+  margin-bottom: calc(-1 * var(--sp-4));
+  padding: 10px 0 var(--sp-4);
+  background: linear-gradient(180deg, rgba(11, 23, 33, 0), rgb(11, 23, 33) 22%);
+  display: grid;
+  gap: 8px;
+}
+
+.training-small {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.training-go {
+  justify-content: center;
+  width: 100%;
+}
+
+.training-badge {
+  position: absolute;
+  top: 96px;
+  left: calc(min(460px, 100vw - 32px) + 32px);
+  right: 16px;
+  margin: 0 auto;
+  width: fit-content;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: rgba(7, 18, 27, 0.82);
+  border: 1px dashed var(--aqua);
+  font-size: var(--fs-small);
+  color: var(--muted);
+}
+
+.training-badge b {
+  color: var(--aqua);
+  letter-spacing: 0.08em;
+}
+
+.key-overlay {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  min-width: 300px;
+  padding: var(--sp-3) var(--sp-4) var(--sp-4);
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+}
+
+.key-phase {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 22px;
+  text-align: center;
+}
+
+.key-row {
+  display: flex;
+  gap: 10px;
+  min-height: 66px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.big-key {
+  background: var(--aqua);
+  box-shadow: 0 4px 0 #1b8792;
+}
+
+.big-key.released {
+  background: transparent;
+  color: var(--accent);
+  border: 2px dashed var(--accent);
+  box-shadow: none;
+}
+
+.key-note {
+  font-size: var(--fs-small);
+  min-height: 1.2em;
+}
+
+/* Modo de treino: escolha do aéreo */
+.practice-body {
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+.practice-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.practice-card .sub .kbd {
+  height: 20px;
+  min-width: 22px;
+}
+
+/* Na onda: desafio no topo e alvo de velocidade */
+.challenge-chip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 96px;
+  margin: 0 auto;
+  width: fit-content;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(7, 18, 27, 0.72);
+  border: 1px solid var(--line-strong);
+  font-size: var(--fs-small);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.challenge-chip .state {
+  color: var(--dim);
+  font-weight: 800;
+}
+
+.challenge-chip.done {
+  border-color: var(--good);
+}
+
+.challenge-chip.done .state {
+  color: var(--good);
+}
+
+.speed-bar {
+  position: relative;
+  overflow: visible;
+}
+
+.speed-target {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 3px;
+  margin-left: -1px;
+  background: var(--warn);
+  border-radius: 2px;
+}
+
+.speed-target.ok {
+  background: var(--good);
+}
+
+.legend-hint {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  font-size: var(--fs-small);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(7, 18, 27, 0.6);
+}
+
+.popup.info {
+  font-size: 20px;
+  color: var(--aqua);
+  white-space: normal;
+  max-width: min(560px, 90vw);
+  text-align: center;
+}
+
+@media (max-width: 900px) {
+  .training-panel {
+    top: auto;
+    bottom: 12px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+    max-height: 52vh;
+  }
+  .training-badge {
+    left: 12px;
+    right: 12px;
+  }
+  .key-overlay {
+    top: 140px;
+    bottom: auto;
+    right: 12px;
+    min-width: 0;
+  }
+}
