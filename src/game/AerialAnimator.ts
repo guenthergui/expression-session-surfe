@@ -1,3 +1,4 @@
+import { expressionFor, type ExpressionId } from '../anim/face';
 import * as THREE from 'three';
 import { airPose, grabPoseId } from '../anim/airPose';
 import { GRAB_CONTACT, HIP_LEAD, SHOULDER_LEAD, SUPERMAN_CONTACTS, WINDUP_DEG, type GrabContact } from '../anim/choreography';
@@ -82,6 +83,8 @@ export interface AnimFrame {
   grab: GrabId | null;
   grabAmount: number;
   events: SprayEvent[];
+  /** Expressão do rosto agora (anim/face.ts). */
+  face: ExpressionId;
   debug: MotionDebug;
 }
 
@@ -268,6 +271,7 @@ export class AerialAnimator {
       grab: null,
       grabAmount: 0,
       events: [],
+      face: 'remada',
       debug: {
         state: '', choreo: '', zone: null,
         anchorFront: v(), anchorBack: v(), com: v(), contact: v(), velocity: v(), accel: v(),
@@ -548,6 +552,15 @@ export class AerialAnimator {
     this.lastPhase = phase;
     f.airborne = airborne;
     f.falling = false;
+    f.face = expressionFor({
+      phase,
+      airborne,
+      falling: false,
+      compressing: run.compressing,
+      sinceLanding: run.lastLanding ? run.t - run.lastLanding.t : Infinity,
+      lastOutcome: run.lastLanding?.result.outcome ?? null,
+      sinceTakeoff: airborne && run.takeoffAt !== null ? run.t - run.takeoffAt : Infinity,
+    });
     f.heightAboveWater = boardPos.y - water;
     f.bodyBoardLag = this.hipAngle - this.boardAngle;
     f.speed = run.groundSpeed;
@@ -1108,6 +1121,7 @@ export class AerialAnimator {
     const fr = this.frame;
     fr.events = events;
     fr.phase = 'aterrissagem';
+    fr.face = 'susto';
     fr.airborne = false;
     fr.falling = true;
     fr.heightAboveWater = Math.max(0, py - pw);

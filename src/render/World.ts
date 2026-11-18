@@ -180,6 +180,7 @@ export class World {
     this.board.group.quaternion.copy(f.boardQuat);
     this.board.group.updateMatrixWorld(true);
     this.rig.applyPose(f.pose);
+    this.rig.setExpression(f.face);
     this.rig.update(dt, this.windVec);
     // Leash: corda simulada; numa queda ele segura a prancha perto do surfista.
     const ankle = this.rig.ankleBack();
