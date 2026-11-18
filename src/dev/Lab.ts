@@ -65,6 +65,10 @@ export const SCENES: Scene[] = [
   { id: 'queda', label: '20. Queda (corpo e prancha separados)', maneuver: 'air-reverse', mistake: 'queda', at: { event: 'pouso', plus: 0.55 }, camera: 'jogo' },
   // Visual
   { id: 'rosto', label: 'Rosto e cabelo', maneuver: 'straight-air', at: { event: 'emPe', plus: 0.3 }, camera: 'rosto' },
+  { id: 'rosto-compressao', label: 'Rosto: esforço na compressão', maneuver: 'air-reverse', at: { event: 'decolagem', plus: -0.08 }, camera: 'rosto' },
+  { id: 'rosto-voo', label: 'Rosto: no ar', maneuver: 'straight-air', at: { event: 'decolagem', plus: 0.35 }, camera: 'rosto' },
+  { id: 'rosto-pouso', label: 'Rosto: depois de um pouso limpo', maneuver: 'air-reverse', at: { event: 'pouso', plus: 0.6 }, camera: 'rosto' },
+  { id: 'rosto-queda', label: 'Rosto: queda', maneuver: 'air-reverse', mistake: 'queda', at: { event: 'pouso', plus: 0.15 }, camera: 'rosto' },
   { id: 'maos', label: 'Mãos e dedos', maneuver: 'straight-air', at: { event: 'emPe', plus: 0.3 }, camera: 'maos' },
   { id: 'prancha', label: 'Prancha, quilhas, parafina e leash', maneuver: 'straight-air', at: { event: 'emPe', plus: 0.3 }, camera: 'prancha' },
   { id: 'agua', label: 'Prancha na água', maneuver: 'straight-air', at: { event: 'emPe', plus: 0.6 }, camera: 'agua' },
@@ -86,7 +90,14 @@ function cameraFor(app: App, preset: CamPreset): ((cam: THREE.PerspectiveCamera)
     case 'corpo':
       return (cam) => place(cam, w.rig.pelvis.getWorldPosition(new THREE.Vector3()), [-1.3, 0.35, 2.9]);
     case 'rosto':
-      return (cam) => place(cam, w.rig.head.getWorldPosition(new THREE.Vector3()).add(tmp.set(0, 0.06, 0)), [0.18, 0.04, 0.6]);
+      // Três quartos de frente, no referencial da cabeça (o rosto olha para +z local).
+      // Perto, porque logo à frente do surfista costuma estar a face da onda.
+      return (cam) => {
+        const head = w.rig.head;
+        head.updateWorldMatrix(true, false);
+        cam.position.copy(head.localToWorld(tmp.set(0.26, 0.08, 0.36)));
+        cam.lookAt(head.localToWorld(new THREE.Vector3(0, 0.05, 0.02)));
+      };
     case 'maos':
       return (cam) => place(cam, w.rig.wristWorld('right'), [0.12, 0.05, 0.45]);
     case 'pes':
