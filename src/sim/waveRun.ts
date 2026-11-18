@@ -356,7 +356,12 @@ export class WaveRun {
       }
     }
     const steer = this.recovering ? 0.55 : 1;
-    r.step(dt, this.t, { aimX: inp.aimX * steer, aimY: inp.aimY * steer, pump: inp.pump && standing, compressing: this.compressing });
+    // Comprimindo sem ↑ nem ↓, a linha fica travada na direção atual (no teclado
+    // não dá para segurar uma subida vertical e ainda apertar ← → para o giro).
+    const lock = this.compressing && inp.aimX === 0 && inp.aimY === 0;
+    const aimX = lock ? Math.cos(r.dir) : inp.aimX;
+    const aimY = lock ? Math.sin(r.dir) : inp.aimY;
+    r.step(dt, this.t, { aimX: aimX * steer, aimY: aimY * steer, pump: inp.pump && standing, compressing: this.compressing });
     // Comprimindo até o lip sem soltar: o pop sai sozinho, já atrasado.
     if (this.compressing && r.s <= S_LIP + 0.02 && Math.sin(r.dir) > 0.15) {
       this.compressing = false;

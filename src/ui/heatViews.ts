@@ -31,12 +31,22 @@ export function conditionChips(c: Conditions, locationId: string): string {
 export function hud(heat: HeatSession, shown?: { wave: number; conditions: Conditions }): HTMLElement {
   const wave = shown?.wave ?? Math.min(heat.waveIndex + 1, WAVES_PER_HEAT);
   const cond = shown?.conditions ?? heat.currentConditions;
+  // Placar no estilo de transmissão: faixa do campeonato, ondas da bateria
+  // (as surfadas com a nota), total e combo.
+  const pips = Array.from({ length: WAVES_PER_HEAT }, (_, i) => {
+    const r = heat.results[i];
+    const cls = r ? 'done' : i === wave - 1 ? 'now' : '';
+    return `<span class="pip ${cls}" title="Onda ${i + 1}">${r ? r.total : i + 1}</span>`;
+  }).join('');
   return el(`
     <div class="hud-top">
-      <div class="panel score-box">
-        <div><div class="label">Onda</div><div class="big">${wave}/${WAVES_PER_HEAT}</div></div>
-        <div><div class="label">Total</div><div class="big" data-hud="total">${heat.total}</div></div>
-        <div><div class="label">Combo</div><div class="big ${heat.combo ? 'warn' : ''}" data-hud="combo">x${heat.combo}</div></div>
+      <div class="scoreboard">
+        <div class="sb-strip"><span class="sb-live">AO VIVO</span><span>Bateria · ${esc(findLocation(heat.setup.locationId).name)}</span></div>
+        <div class="sb-body">
+          <div class="sb-waves" data-hud="pips">${pips}</div>
+          <div class="sb-total"><span class="label">Total</span><b data-hud="total">${heat.total}</b></div>
+          <div class="sb-combo ${heat.combo ? 'on' : ''}"><span class="label">Combo</span><b data-hud="combo">x${heat.combo}</b></div>
+        </div>
       </div>
       <div class="panel cond-box">
         <span class="chip">${esc(findLocation(heat.setup.locationId).name)}</span>
@@ -132,33 +142,40 @@ export function challengeCard(heat: HeatSession, m: Maneuver): HTMLElement {
       <div class="muted" style="font-size:14px">Na onda: <span class="kbd">D</span> para o drop, setas para navegar e <span class="kbd">W</span> para bombear. Segure <span class="kbd">Espaço</span> subindo a face e solte perto do lip. Qualquer aéreo pontua; o desafio vale mais.</div>
       <div class="actions">
         <button class="btn secondary" data-action="respin" ${heat.respinAvailable ? '' : 'disabled'}>${heat.respinAvailable ? 'Girar de novo (1 por bateria)' : 'Giro extra usado'}</button>
+        <button class="btn secondary" data-action="train">Ver treino <span class="kbd">T</span></button>
         <button class="btn" data-action="go">Remar! <span class="kbd">Espaço</span></button>
       </div>
     </div>`);
 }
 
-/** Painel da onda: velocidade, zona crítica, compressão, tempo e leitura do voo. */
-export function rideHud(challenge: Maneuver): HTMLElement {
+/**
+ * Painel da onda: velocidade (com o alvo do desafio), zona crítica,
+ * compressão, tempo, leitura do voo e o desafio no topo. A legenda de teclas
+ * aparece aberta no treino Iniciante; nos outros níveis, H abre e fecha.
+ */
+export function rideHud(challenge: Maneuver, opts: { legend: boolean; practice: boolean } = { legend: true, practice: false }): HTMLElement {
   const legend = (rows: readonly (readonly [string, string])[]) => rows.map(([k, t]) => `<span class="kbd">${esc(k)}</span><span>${esc(t)}</span>`).join('');
   return el(`
     <div class="ride-hud">
       <div class="panel ride-meters">
-        <div class="meter"><span class="label">Velocidade</span><div class="bar"><span data-rh="speed"></span></div><b data-rh="kmh">0 km/h</b></div>
+        <div class="meter"><span class="label">Velocidade</span><div class="bar speed-bar"><span data-rh="speed"></span><i class="speed-target" data-rh="target" title="Velocidade recomendada para o ${esc(challenge.name)}"></i></div><b data-rh="kmh">0 km/h</b></div>
         <div class="meter"><span class="label">Zona crítica</span><div class="bar crit"><span data-rh="crit"></span></div><b data-rh="gap"></b></div>
         <div class="meter"><span class="label">Compressão</span><div class="bar comp"><span data-rh="comp"></span></div><b data-rh="ready"></b></div>
         <div class="meter"><span class="label">Onda</span><b data-rh="time">—</b><span class="muted" data-rh="wavepts"></span></div>
       </div>
+      <div class="challenge-chip" data-rh="challenge"><span class="tag">${opts.practice ? 'Treino' : 'Desafio'}</span> <b>${esc(challenge.name)}</b> <span class="state" data-rh="chstate">○</span></div>
       <div class="panel ride-msg" data-rh="msg">Pressione D para entrar na onda</div>
       <div class="panel air-readout" data-rh="air" hidden></div>
-      <div class="panel ride-legend" data-rh="legend">
-        <div class="muted">Desafio: <b class="warn">${esc(challenge.name)}</b> · ${esc(challenge.howTo)}</div>
+      <div class="legend-hint muted" data-rh="legend-hint" ${opts.legend ? 'hidden' : ''}><span class="kbd">H</span> teclas</div>
+      <div class="panel ride-legend" data-rh="legend" ${opts.legend ? '' : 'hidden'}>
+        <div class="muted">${opts.practice ? 'Treino' : 'Desafio'}: <b class="warn">${esc(challenge.name)}</b> · ${esc(challenge.howTo)} <span class="kbd">H</span> esconde</div>
         <div class="help-list" data-rh="lg-agua">${legend(CONTROL_LEGEND.agua)}</div>
         <div class="help-list" data-rh="lg-ar" hidden>${legend(CONTROL_LEGEND.ar)}</div>
       </div>
     </div>`);
 }
 
-function aerialLine(a: AerialResult): string {
+export function aerialLine(a: AerialResult): string {
   const [txt, cls] = OUTCOME_TEXT[a.landing.outcome];
   const s = a.score;
   const r = a.record;
@@ -199,6 +216,24 @@ export function waveResultCard(r: WaveResult, last: boolean): HTMLElement {
         <span class="muted">Combo · XP</span><span>x${r.comboAfter} · +${r.xp} XP${r.newDiscovery ? ' · <span class="warn">DESCOBERTA NOVA ×1,5</span>' : ''}</span>
       </div>
       <div class="actions"><button class="btn" data-action="next">${last ? 'Resultado da bateria' : 'Próxima onda'} <span class="kbd">Espaço</span></button></div>
+    </div>`);
+}
+
+/** Resultado de uma onda do modo de treino: nada vai para o salvamento. */
+export function practiceResultCard(r: WaveResult, hint: string | null): HTMLElement {
+  const [txt, cls] = r.aerials.length ? OUTCOME_TEXT[r.outcome] : ['SEM AÉREO', 'warn'];
+  return el(`
+    <div class="panel center-card">
+      <div class="tag">Treino · ${esc(r.maneuver.name)} ${r.challengeDone ? '<span class="good">✓ conseguiu</span>' : '<span class="muted">✗ ainda não</span>'} · não conta pontos</div>
+      <h1 class="${cls}" style="font-size:38px">${txt}</h1>
+      ${hint ? `<div class="howto"><b>Para acertar:</b> ${esc(hint)}</div>` : ''}
+      <div class="aerial-list">${r.aerials.length ? r.aerials.map(aerialLine).join('') : '<div class="muted">Nenhum aéreo nesta onda: suba a face rápido e solte o espaço perto do lip.</div>'}</div>
+      <div class="actions">
+        <button class="btn secondary" data-action="menu">Menu</button>
+        <button class="btn secondary" data-action="list">Outro aéreo</button>
+        <button class="btn secondary" data-action="demo">Ver a demonstração</button>
+        <button class="btn" data-action="again">Surfar de novo <span class="kbd">Enter</span></button>
+      </div>
     </div>`);
 }
 
@@ -248,8 +283,27 @@ export function heatResultScreen(sum: HeatSummary, rewards: HeatRewards): HTMLEl
     </div>`);
 }
 
-export function popup(parent: HTMLElement, text: string, cls: string, x: string, y: string, big = false) {
-  const p = el(`<div class="popup ${cls} ${big ? 'big' : ''}" style="left:${x};top:${y}">${esc(text)}</div>`);
+/**
+ * Cartão de nota (lower third de transmissão): nome do aéreo, resultado do
+ * pouso e pontos, entrando pela esquerda e saindo sozinho.
+ */
+export function scoreCard(parent: HTMLElement, o: { name: string; outcome: string; cls: string; points: number | null; note?: string; challenge?: boolean }, ms = 2600) {
+  parent.querySelectorAll('.score-card').forEach((n) => n.remove());
+  const c = el(`
+    <div class="score-card ${o.cls}" style="animation-duration:${ms}ms">
+      <div class="sc-accent"></div>
+      <div class="sc-main">
+        <div class="sc-name">${esc(o.name)}</div>
+        <div class="sc-sub"><span class="sc-outcome">${esc(o.outcome)}</span>${o.note ? ` · ${esc(o.note)}` : ''}${o.challenge ? ' · <span class="sc-ch">DESAFIO ×1,5</span>' : ''}</div>
+      </div>
+      ${o.points !== null ? `<div class="sc-points">${o.points}</div>` : ''}
+    </div>`);
+  parent.appendChild(c);
+  setTimeout(() => c.remove(), ms);
+}
+
+export function popup(parent: HTMLElement, text: string, cls: string, x: string, y: string, big = false, ms = 950) {
+  const p = el(`<div class="popup ${cls} ${big ? 'big' : ''}" style="left:${x};top:${y};animation-duration:${ms}ms">${esc(text)}</div>`);
   parent.appendChild(p);
-  setTimeout(() => p.remove(), 950);
+  setTimeout(() => p.remove(), ms);
 }

@@ -1,3 +1,4 @@
+import { EXPRESSIONS, NEUTRAL, mixExpression, type ExpressionId, type FaceExpression } from '../anim/face';
 import * as THREE from 'three';
 import { GARMENTS, REGION_PLACE, activeGarments, colorOf, findItem, type BodyRole, type Look, type TattooRegion } from '../data/cosmetics';
 import { BODY } from '../anim/stance';
@@ -255,6 +256,26 @@ export class SurferRig implements SurferAvatar {
   private hairStyles = new Map<string, THREE.Object3D>();
   private hairStrands = new Map<string, HairStrand[]>();
   private browStyles = new Map<string, THREE.Object3D>();
+  /** Peças móveis do rosto (expressões e piscar). */
+  private faceRig: {
+    lids: THREE.Mesh[];
+    lowerLids: THREE.Mesh[];
+    eyes: THREE.Object3D[];
+    cheeks: THREE.Mesh[];
+    upper: THREE.Mesh;
+    lower: THREE.Mesh;
+    cavity: THREE.Mesh;
+    teeth: THREE.Mesh;
+    corners: THREE.Mesh[];
+  } | null = null;
+  /** Expressão atual (suavizada) e alvo. */
+  private expr: FaceExpression = { ...NEUTRAL };
+  private exprTarget: FaceExpression = { ...NEUTRAL };
+  private blinkIn = 2.4;
+  private blinkT = -1;
+  private gazeT = 0;
+  private gaze = new THREE.Vector2();
+  private gazeWant = new THREE.Vector2();
   private beardStyles = new Map<string, THREE.Object3D>();
   private activeHair = 'curto';
   private accessories = new Map<string, THREE.Object3D>();
@@ -430,6 +451,10 @@ export class SurferRig implements SurferAvatar {
     h.add(tip);
     const eyeWhiteMat = new THREE.MeshPhysicalMaterial({ color: 0xf2efe9, roughness: 0.15, clearcoat: 1, clearcoatRoughness: 0.05 });
     const pupilMat = new THREE.MeshStandardMaterial({ color: 0x0a0806, roughness: 0.2 });
+    const lids: THREE.Mesh[] = [];
+    const lowerLids: THREE.Mesh[] = [];
+    const eyes: THREE.Object3D[] = [];
+    const cheeks: THREE.Mesh[] = [];
     for (const s of [-1, 1]) {
       // Orelha: concha achatada com lóbulo
       const ear = new THREE.Mesh(new THREE.SphereGeometry(0.024, 14, 12), this.skin);
@@ -441,7 +466,9 @@ export class SurferRig implements SurferAvatar {
       const cheek = new THREE.Mesh(new THREE.SphereGeometry(0.022, 14, 10), this.skin);
       cheek.scale.set(1.1, 0.7, 0.5);
       cheek.position.set(s * 0.047, 0.036, 0.07);
+      cheek.userData.base = cheek.position.clone();
       h.add(cheek);
+      cheeks.push(cheek);
       // Olho: esclera brilhante, íris e pupila, dentro da órbita
       const eye = new THREE.Group();
       eye.position.set(s * 0.034, 0.066, 0.084);
@@ -451,13 +478,24 @@ export class SurferRig implements SurferAvatar {
       iris.scale.z = 0.5;
       const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.0028, 10, 8), pupilMat);
       pupil.position.z = 0.0118;
-      eye.add(white, iris, pupil);
+      // Brilho úmido na córnea: dá vida ao olhar.
+      const glint = new THREE.Mesh(new THREE.SphereGeometry(0.0011, 6, 4), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+      glint.position.set(0.003, 0.003, 0.0124);
+      eye.add(white, iris, pupil, glint);
       h.add(eye);
-      // Pálpebra superior
+      eyes.push(eye);
+      // Pálpebra superior: desce para piscar e apertar o olhar.
       const lid = new THREE.Mesh(new THREE.SphereGeometry(0.0138, 16, 8, 0, Math.PI * 2, 0, Math.PI * 0.42), this.skin);
       lid.position.copy(eye.position);
       lid.rotation.x = 0.5;
       h.add(lid);
+      lids.push(lid);
+      // Pálpebra de baixo: sobe quando o olhar aperta (sol, concentração, sorriso).
+      const low = new THREE.Mesh(new THREE.SphereGeometry(0.0137, 16, 6, 0, Math.PI * 2, Math.PI * 0.64, Math.PI * 0.36), this.skin);
+      low.position.copy(eye.position);
+      low.rotation.x = -0.35;
+      h.add(low);
+      lowerLids.push(low);
     }
     // Lábios (boca) superior e inferior
     const lipMat = this.lipMat;
@@ -467,7 +505,24 @@ export class SurferRig implements SurferAvatar {
     const lower = new THREE.Mesh(new THREE.SphereGeometry(0.016, 14, 8), lipMat);
     lower.scale.set(1.3, 0.38, 0.55);
     lower.position.set(0, -0.006, 0.092);
-    h.add(upper, lower);
+    // Boca por dentro e dentes: só aparecem quando a boca abre.
+    const cavity = new THREE.Mesh(new THREE.SphereGeometry(0.016, 14, 10), new THREE.MeshStandardMaterial({ color: 0x3a1512, roughness: 0.6 }));
+    cavity.scale.set(1.25, 0.05, 0.4);
+    cavity.position.set(0, -0.002, 0.091);
+    const teeth = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.005, 0.006), new THREE.MeshPhysicalMaterial({ color: 0xf1ece2, roughness: 0.3, clearcoat: 0.5 }));
+    teeth.position.set(0, 0.0015, 0.091);
+    teeth.visible = false;
+    // Cantos da boca: sobem no sorriso e descem na careta.
+    const corners = [-1, 1].map((s) => {
+      const c = new THREE.Mesh(new THREE.SphereGeometry(0.0042, 8, 6), lipMat);
+      c.position.set(s * 0.023, 0, 0.087);
+      c.userData.base = c.position.clone();
+      return c;
+    });
+    upper.userData.base = upper.position.clone();
+    lower.userData.base = lower.position.clone();
+    h.add(cavity, teeth, upper, lower, ...corners);
+    this.faceRig = { lids, lowerLids, eyes, cheeks, upper, lower, cavity, teeth, corners };
 
     this.buildBrows();
     this.buildBeards();
@@ -499,6 +554,7 @@ export class SurferRig implements SurferAvatar {
         }
         g.add(m);
       }
+      for (const c of g.children) c.userData.base = { pos: c.position.clone(), rz: c.rotation.z, side: Math.sign(c.position.x) };
       g.visible = false;
       h.add(g);
       this.browStyles.set(id, g);
@@ -1108,8 +1164,80 @@ export class SurferRig implements SurferAvatar {
    * Movimento secundário do cabelo: cada mecha é uma mola angular que reage à
    * aceleração da cabeça (no referencial dela) e ao vento.
    */
+  /** Expressão do rosto que o surfista deve fazer (a transição é suave). */
+  setExpression(id: ExpressionId) {
+    this.exprTarget = EXPRESSIONS[id];
+  }
+
+  /** Piscar, desvio do olhar e mistura das expressões. */
+  private updateFace(dt: number) {
+    const f = this.faceRig;
+    if (!f) return;
+    // Rosto muda rápido (cerca de 0,12 s), mas sem saltos.
+    mixExpression(this.expr, this.exprTarget, 1 - Math.exp(-dt * 9), this.expr);
+    const e = this.expr;
+    // Piscar a cada 2 a 5 s, mais quando o rosto relaxa.
+    this.blinkIn -= dt;
+    if (this.blinkIn <= 0 && this.blinkT < 0) {
+      this.blinkT = 0;
+      this.blinkIn = 2 + Math.random() * 3;
+    }
+    let blink = 0;
+    if (this.blinkT >= 0) {
+      this.blinkT += dt;
+      const u = this.blinkT / 0.16;
+      blink = u < 0.4 ? u / 0.4 : Math.max(0, 1 - (u - 0.4) / 0.6);
+      if (u >= 1) this.blinkT = -1;
+    }
+    // Pequenos desvios do olhar (sacadas), mais contidos quando concentrado.
+    this.gazeT -= dt;
+    if (this.gazeT <= 0) {
+      this.gazeT = 0.6 + Math.random() * 1.4;
+      const k = 1 - e.browFurrow * 0.7;
+      this.gazeWant.set((Math.random() - 0.5) * 0.35 * k, (Math.random() - 0.5) * 0.18 * k);
+    }
+    this.gaze.lerp(this.gazeWant, 1 - Math.exp(-dt * 25));
+    const close = Math.min(1, e.lidClose + blink * (1 - e.lidClose));
+    for (const lid of f.lids) lid.rotation.x = 0.5 + close * 1.05 + e.squint * 0.3 - e.browRaise * 0.3;
+    for (const low of f.lowerLids) low.rotation.x = -(0.35 + e.squint * 0.5 + blink * 0.15);
+    for (const eye of f.eyes) eye.rotation.set(-this.gaze.y, this.gaze.x, 0);
+    for (const c of f.cheeks) {
+      const b = c.userData.base as THREE.Vector3;
+      const up = e.squint * 0.002 + Math.max(0, e.smile) * 0.004;
+      c.position.set(b.x * (1 + e.puff * 0.08), b.y + up, b.z + e.puff * 0.004);
+      c.scale.set(1.1 + e.puff * 0.25, 0.7, 0.5 + e.puff * 0.35);
+    }
+    // Sobrancelhas: sobem (surpresa, esforço) ou descem e se juntam (concentração).
+    for (const g of this.browStyles.values()) {
+      if (!g.visible) continue;
+      for (const c of g.children) {
+        const b = c.userData.base as { pos: THREE.Vector3; rz: number; side: number };
+        c.position.set(b.pos.x - b.side * e.browFurrow * 0.005, b.pos.y + e.browRaise * 0.013 - e.browFurrow * 0.006, b.pos.z);
+        c.rotation.z = b.rz + b.side * (e.browFurrow * 0.42 - e.browRaise * 0.2);
+      }
+    }
+    // Boca: abre a mandíbula, aperta a boca, sorri ou faz careta.
+    const open = e.mouthOpen;
+    const ub = f.upper.userData.base as THREE.Vector3;
+    const lb = f.lower.userData.base as THREE.Vector3;
+    f.upper.position.set(ub.x, ub.y + open * 0.004 + Math.max(0, e.smile) * 0.002, ub.z);
+    f.lower.position.set(lb.x, lb.y - open * 0.026, lb.z - open * 0.003);
+    const press = 1 - e.lipPress * 0.4;
+    const wide = 1 + Math.max(0, e.smile) * 0.38 - e.lipPress * 0.1 - Math.max(0, -e.smile) * 0.08;
+    f.upper.scale.set(1.45 * wide, 0.32 * press, 0.55);
+    f.lower.scale.set(1.3 * wide, 0.38 * press, 0.55);
+    f.cavity.scale.set(1.25 * wide, Math.max(0.05, open * 1.9), 0.55);
+    f.cavity.position.y = -0.002 - open * 0.012;
+    f.teeth.visible = open > 0.18 && e.smile > 0.3;
+    for (const c of f.corners) {
+      const b = c.userData.base as THREE.Vector3;
+      c.position.set(b.x * wide, b.y + e.smile * 0.011 - open * 0.006, b.z);
+    }
+  }
+
   update(dt: number, wind: THREE.Vector3) {
     if (dt <= 0) return;
+    this.updateFace(dt);
     const headPos = this.head.getWorldPosition(tmpV3);
     if (!this.hasHeadPos) {
       this.lastHeadPos.copy(headPos);

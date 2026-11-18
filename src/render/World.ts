@@ -12,7 +12,7 @@ import { Environment } from './Environment';
 import { Leash } from './Leash';
 import { Ocean, WAKE_LIFE, type WakePoint } from './Ocean';
 import { Scenery } from './Scenery';
-import { Spray } from './Spray';
+import { MIST, Spray } from './Spray';
 import { Stage } from './Stage';
 import { SurferRig } from './SurferRig';
 
@@ -180,6 +180,7 @@ export class World {
     this.board.group.quaternion.copy(f.boardQuat);
     this.board.group.updateMatrixWorld(true);
     this.rig.applyPose(f.pose);
+    this.rig.setExpression(f.face);
     this.rig.update(dt, this.windVec);
     // Leash: corda simulada; numa queda ele segura a prancha perto do surfista.
     const ankle = this.rig.ankleBack();
@@ -206,8 +207,32 @@ export class World {
     if (!f.airborne && f.heightAboveWater < 0.3) this.wetness = Math.min(1, this.wetness + dt * 0.05);
     this.rig.setWetness(this.wetness);
     const target = f.falling ? f.pose.pelvisPos : f.boardPos;
-    this.camRig.update(target, f.heightAboveWater, this.wave.height, dt, f.airborne);
+    this.camRig.update(target, f.heightAboveWater, this.wave.height, dt, f.airborne, f.speed);
     this.env.follow(f.boardPos);
+  }
+
+  /** Tranco da câmera em cada impacto: forte na queda e no pouso instável, curto no pop. */
+  private cameraKick(e: SprayEvent) {
+    const c = this.camRig;
+    switch (e.kind) {
+      case 'launch':
+        c.kick(0.16 + 0.1 * Math.min(1.5, e.strength));
+        break;
+      case 'land':
+        c.kick(e.outcome === 'instavel' ? 0.62 : 0.28 + 0.1 * Math.min(1.6, e.strength));
+        break;
+      case 'fall':
+        c.kick(0.55);
+        break;
+      case 'bodySplash':
+        c.kick(0.35);
+        break;
+      case 'drop':
+        c.kick(0.12);
+        break;
+      default:
+        break;
+    }
   }
 
   /** Spray específico de cada acontecimento: quantidade, direção, velocidade, tamanho e duração variam. */
@@ -215,32 +240,43 @@ export class World {
     const s = this.spray;
     const scale = this.stage.profile.particles / 1400;
     const n = (count: number) => Math.max(1, Math.round(count * scale));
+    this.cameraKick(e);
     switch (e.kind) {
       case 'carve': {
         // Leque saindo da borda, para trás e para cima, mais forte em curvas fechadas.
         const back = this.tmp2.copy(e.dir).multiplyScalar(-0.8).addScaledVector(UP, 0.9).normalize();
-        s.emit(e.pos, back, n(4 * e.strength), 2.2 * e.strength, 1.1, 0.1, 0.6);
+        // Cortina em leque (gotas) e, nas batidas fortes, um borrifo fino que fica no ar.
+        s.emitFan(e.pos, back, n(5 * e.strength), 2.6 * e.strength, 0.85, 0.08, 0.7);
+        if (e.strength > 0.7 && Math.random() < (e.strength - 0.7) * 0.8) s.emit(e.pos, back, n(1), 1.2 * e.strength, 0.5, 0.5, 1.6, MIST);
         break;
       }
       case 'launch':
         // Cortina de água arrancada do lip, mais alta quanto maior a impulsão.
         s.emit(e.pos, this.tmp2.set(-0.25, 1, -0.45).normalize(), n(80 * e.strength), 4.2 * e.strength, 2, 0.16, 1.1);
         s.emit(e.pos, this.tmp2.set(0.3, 0.6, 0.2).normalize(), n(30), 2, 1.2, 0.09, 0.7);
+        s.emit(e.pos, this.tmp2.set(-0.2, 1, -0.3).normalize(), n(12 * e.strength), 2.2, 1.4, 0.7, 2, MIST);
         break;
       case 'land': {
         const unstable = e.outcome === 'instavel';
         // Pouso limpo: leque baixo e longo para frente. Instável: explosão mais alta e caótica.
         s.emit(e.pos, this.tmp2.set(0.8, unstable ? 1 : 0.45, 0.4).normalize(), n(unstable ? 130 : 90), unstable ? 4 : 3.4, unstable ? 3.2 : 1.8, unstable ? 0.2 : 0.15, 1);
+        // Leque baixo para os lados e borrifo fino que fica pairando.
+        s.emitFan(e.pos, this.tmp2.set(0.9, 0.35, 0).normalize(), n(40), 3.2, 1.2, 0.1, 0.8);
+        s.emit(e.pos, this.tmp2.set(0.5, 0.8, 0.2).normalize(), n(unstable ? 22 : 14), 1.8, 1.6, 0.8, 2.2, MIST);
+        this.landingFoam(e.pos, unstable ? 0.7 : 0.55);
         this.wetness = Math.min(1, this.wetness + 0.25);
         break;
       }
       case 'fall':
         s.emit(e.pos, this.tmp2.set(0, 1, 0.2).normalize(), n(110 * Math.min(1.5, e.strength)), 4, 3, 0.2, 1.2);
+        s.emit(e.pos, UP, n(18), 2, 2, 0.9, 2.2, MIST);
         break;
       case 'bodySplash':
         // O corpo entrando na água: coluna alta e respingos largos.
         s.emit(e.pos, UP, n(160), 5, 3.4, 0.24, 1.4);
         s.emit(e.pos, this.tmp2.set(0, 0.35, 1).normalize(), n(60), 2.5, 2.5, 0.14, 0.9);
+        s.emit(e.pos, UP, n(20), 1.6, 2.2, 1, 2.4, MIST);
+        this.landingFoam(e.pos, 0.7);
         this.wetness = 1;
         break;
       case 'boardSlap':
@@ -259,6 +295,16 @@ export class World {
     }
   }
 
+  /** Mancha de espuma que fica na água onde o surfista pousou ou caiu. */
+  private landingFoam(p: THREE.Vector3, strength: number) {
+    if (this.stage.profile.wakePoints <= 0) return;
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      this.wake.push({ x: p.x + Math.cos(a) * 0.5, z: p.z + Math.sin(a) * 0.5, age: 0, strength });
+    }
+    while (this.wake.length > this.stage.profile.wakePoints) this.wake.shift();
+  }
+
   /** Espuma que voa da crista onde a onda está quebrando, empurrada pelo vento. */
   private crestSpray(dt: number) {
     const w = this.wave;
@@ -272,6 +318,8 @@ export class World {
       const offshore = w.windDir.z < 0 ? 1 : 0.3;
       const dir = this.tmp2.set(0.1, 1, -0.6 * offshore + 0.4 * (1 - offshore)).normalize();
       this.spray.emit(this.tmp.set(x, y, z), dir, 2, 1.5 + (w.windSpeed / 10) * offshore, 0.8, 0.2, 1.2);
+      // Névoa soprada da crista: mais com vento terral (offshore).
+      if (Math.random() < 0.35 + 0.4 * offshore) this.spray.emit(this.tmp, dir, 1, 1.2 + (w.windSpeed / 8) * offshore, 0.6, 0.9, 2.4, MIST);
     }
   }
 

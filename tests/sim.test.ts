@@ -7,7 +7,7 @@ import { evaluateLanding } from '../src/sim/landing';
 import { S_LIP } from '../src/sim/surfPhysics';
 import { tryLaunch, type Launch } from '../src/sim/takeoff';
 import { DROP_TIME, STANDUP_TIME, WaveRun } from '../src/sim/waveRun';
-import { createWave, crestHeight, faceWidth, foamAt, surfaceHeight, surfaceNormal } from '../src/sim/waveField';
+import { createWave, crestHeight, crestOffset, faceWidth, foamAt, surfaceHeight, surfaceNormal } from '../src/sim/waveField';
 import { params, ride, testWave } from './helpers';
 describe('campo de ondas', () => {
   const w = createWave({ height: 1.5, time: 1, breakX0: -10, peelSpeed: 6 });
@@ -23,6 +23,15 @@ describe('campo de ondas', () => {
   it('a parte quebrada é mais baixa e tem mais espuma', () => {
     expect(crestHeight(w, -30)).toBeLessThan(crestHeight(w, 0));
     expect(foamAt(w, -30, 1)).toBeGreaterThan(foamAt(w, 20, 3));
+  });
+
+  it('onde a onda já quebrou fica espuma nas costas e uma renda à frente', () => {
+    const back = (x: number) => foamAt(w, x, crestOffset(w, x) - 4);
+    const front = (x: number) => foamAt(w, x, crestOffset(w, x) + faceWidth(w) * 1.9);
+    expect(back(-30)).toBeGreaterThan(0.2);
+    expect(front(-30)).toBeGreaterThan(0.15);
+    expect(back(30)).toBeLessThan(0.05);
+    expect(front(30)).toBeLessThan(0.05);
   });
 
   it('a normal aponta para cima e para a praia na face', () => {

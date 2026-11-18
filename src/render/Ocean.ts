@@ -157,10 +157,49 @@ export class Ocean {
             float b = oNoise(p * 2.3 - vec2(uTime * 0.11, -uTime * 0.04));
             float c = oNoise(p * 7.1 + vec2(uTime * 0.2, uTime * 0.13));
             return a * 0.5 + b * 0.32 + c * 0.18;
+          }
+          // Renda da espuma: as bordas entre células (Voronoi) formam a rede de
+          // espuma que fica na água depois da quebra. Devolve a distância até a borda.
+          float foamLace(vec2 p) {
+            vec2 i = floor(p); vec2 f = fract(p);
+            float d1 = 8.0; float d2 = 8.0;
+            for (int y = -1; y <= 1; y++) {
+              for (int x = -1; x <= 1; x++) {
+                vec2 g = vec2(float(x), float(y));
+                vec2 o = vec2(oHash(i + g), oHash(i + g + 17.31));
+                o = 0.5 + 0.4 * sin(uTime * 0.25 + 6.2831 * o);
+                vec2 r = g + o - f;
+                float d = dot(r, r);
+                if (d < d1) { d2 = d1; d1 = d; } else if (d < d2) { d2 = d; }
+              }
+            }
+            return sqrt(d2) - sqrt(d1);
           }`)
         .replace('#include <color_fragment>', `#include <color_fragment>
           float foamP = foamPattern(vWPos.xz);
           float foamF = min(clamp((vFoam * 1.25 - (1.0 - foamP) * 1.05) * 2.4, 0.0, 1.0), vFoam * 1.5);
+          // Três camadas: branca densa onde a espuma é forte, renda de linhas finas
+          // onde é média e bolhas soltas onde é fraca. A renda some ao longe (sem cintilar).
+          float laceFade = 1.0 - smoothstep(25.0, 90.0, length(vViewPosition));
+          // Domínio torcido por ruído: as células perdem a cara de favo e viram manchas irregulares.
+          vec2 lp = vWPos.xz * 0.9;
+          lp += vec2(oNoise(lp * 0.45 + 3.1), oNoise(lp * 0.45 - 5.7)) * 1.8;
+          // Segunda torção, mais fina: as bordas das células ficam curvas, não retas.
+          lp += vec2(oNoise(lp * 1.9 + 11.0), oNoise(lp * 1.9 - 2.0)) * 0.45;
+          float edge = foamLace(lp);
+          // Largura das linhas varia; onde a espuma é mais forte as células se enchem.
+          float laceW = (0.06 + vFoam * 0.38) * (0.55 + 0.9 * oNoise(lp * 0.35 + 9.0));
+          // De perto as linhas da rede viram traços retos demais: ali fica só a espuma em manchas.
+          float lineFade = smoothstep(18.0, 45.0, length(vViewPosition));
+          float lines = (1.0 - smoothstep(laceW * 0.2, laceW * 1.3, edge)) * 0.45 * lineFade;
+          float fill = smoothstep(0.58, 0.85, foamP + vFoam * 0.5);
+          // Falhas na rede: trechos sem espuma, para não formar uma malha contínua.
+          float gaps = smoothstep(0.22, 0.55, oNoise(lp * 0.6 + 21.0) + vFoam * 0.35);
+          float lace = max(lines, fill) * gaps;
+          float laceF = clamp(lace, 0.0, 1.0) * smoothstep(0.06, 0.42, vFoam) * laceFade;
+          float dense = smoothstep(0.55, 0.88, vFoam);
+          foamF = max(foamF, laceF * (1.0 - dense));
+          foamF = mix(foamF, 0.93 + 0.07 * foamP, dense);
           diffuseColor.rgb = mix(diffuseColor.rgb, uFoamColor, foamF);`)
         .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
           // Ao longe, as ondulações menores que um pixel espalham o reflexo: mais rugoso, sem cintilação.
