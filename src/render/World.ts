@@ -206,8 +206,32 @@ export class World {
     if (!f.airborne && f.heightAboveWater < 0.3) this.wetness = Math.min(1, this.wetness + dt * 0.05);
     this.rig.setWetness(this.wetness);
     const target = f.falling ? f.pose.pelvisPos : f.boardPos;
-    this.camRig.update(target, f.heightAboveWater, this.wave.height, dt, f.airborne);
+    this.camRig.update(target, f.heightAboveWater, this.wave.height, dt, f.airborne, f.speed);
     this.env.follow(f.boardPos);
+  }
+
+  /** Tranco da câmera em cada impacto: forte na queda e no pouso instável, curto no pop. */
+  private cameraKick(e: SprayEvent) {
+    const c = this.camRig;
+    switch (e.kind) {
+      case 'launch':
+        c.kick(0.16 + 0.1 * Math.min(1.5, e.strength));
+        break;
+      case 'land':
+        c.kick(e.outcome === 'instavel' ? 0.62 : 0.28 + 0.1 * Math.min(1.6, e.strength));
+        break;
+      case 'fall':
+        c.kick(0.55);
+        break;
+      case 'bodySplash':
+        c.kick(0.35);
+        break;
+      case 'drop':
+        c.kick(0.12);
+        break;
+      default:
+        break;
+    }
   }
 
   /** Spray específico de cada acontecimento: quantidade, direção, velocidade, tamanho e duração variam. */
@@ -215,6 +239,7 @@ export class World {
     const s = this.spray;
     const scale = this.stage.profile.particles / 1400;
     const n = (count: number) => Math.max(1, Math.round(count * scale));
+    this.cameraKick(e);
     switch (e.kind) {
       case 'carve': {
         // Leque saindo da borda, para trás e para cima, mais forte em curvas fechadas.

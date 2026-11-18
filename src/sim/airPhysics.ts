@@ -25,6 +25,17 @@ import type { Launch } from './takeoff';
 
 export const AIR_G = 9.81;
 export const VARIAL_TIME = 0.5;
+
+/**
+ * Força (0 a 1) da câmera lenta do ápice: cresce com a impulsão do pop
+ * (vy0 de 4,4 a 5,6 m/s) e só vale perto do topo, quando a velocidade
+ * vertical (vy) está perto de zero.
+ */
+export function apexSlowStrength(vy0: number, vy: number): number {
+  const big = Math.min(1, Math.max(0, (vy0 - 4.4) / 1.2));
+  const near = Math.min(1, Math.max(0, 1 - Math.abs(vy) / 1.4));
+  return big * near * near * (3 - 2 * near);
+}
 /** Grau mínimo para o pouso de costas (fakie) contar como intenção de giro. */
 export const FAKIE_MIN = 140;
 

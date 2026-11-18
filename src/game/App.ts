@@ -15,6 +15,7 @@ import type { Attributes, Conditions, Maneuver } from '../core/types';
 import { AutoPilot, planFor, type PilotPlan } from '../sim/autopilot';
 import type { TutorialLevel } from '../core/save';
 import { V_MIN_AIR } from '../sim/takeoff';
+import { apexSlowStrength } from '../sim/airPhysics';
 import { DROP_TIME, WaveRun, type RunEvent, type RunParams } from '../sim/waveRun';
 import { World } from '../render/World';
 import { bind } from '../ui/dom';
@@ -642,6 +643,17 @@ export class App implements MenuHost {
     return key ? SLOW_SCALE : 1;
   }
 
+  /**
+   * Câmera lenta curta no ápice de um aéreo grande: quanto mais forte o pop,
+   * mais o tempo desacelera (até 0,6×) enquanto o surfista está perto do topo.
+   * Fica desligada quando o sistema pede menos movimento.
+   */
+  private apexScale(r: Ride): number {
+    const air = r.run.state === 'airborne' ? r.run.air : null;
+    if (!air || !this.world.camRig.motion) return 1;
+    return 1 - 0.4 * apexSlowStrength(air.vy0, air.vy);
+  }
+
   /** Parâmetros da física da onda: atributos, equipamento, cansaço e condições. */
   private runParams(attrs: Attributes, setup: HeatSetup, c: Conditions, extra: Partial<RunParams> = {}): RunParams {
     const board = findBoard(setup.boardId);
@@ -941,6 +953,7 @@ export class App implements MenuHost {
     if (r) {
       // Nas cenas de validação o tempo da onda pode ficar congelado num instante.
       if (r.training) r.timeScale += (this.trainingScale(r) - r.timeScale) * (1 - Math.exp(-dt * 7));
+      else r.timeScale += (this.apexScale(r) - r.timeScale) * (1 - Math.exp(-dt * 10));
       const rideDt = this.labFreeze !== null && r.time >= this.labFreeze ? 0 : dt * r.timeScale;
       r.time += rideDt;
       const run = r.run;
