@@ -116,6 +116,17 @@ export function surfaceNormal(w: WaveState, x: number, z: number): { x: number; 
 }
 
 /**
+ * Espuma que fica na água onde a onda já quebrou: um rastro nas costas da onda
+ * (o que passou por cima da crista) e uma renda à frente da espuma branca.
+ * Só a distância até a crista (s) e a largura da face (F) importam.
+ */
+export function residueProfile(s: number, F: number): number {
+  const back = smoothstep(-6, -2.5, s) * (1 - smoothstep(-1.2, -0.2, s)) * 0.75;
+  const front = smoothstep(F * 1.1, F * 1.6, s) * (1 - smoothstep(F * 2.3, F * 3, s)) * 0.6;
+  return back + front;
+}
+
+/**
  * Espuma de 0 a 1: na crista perto da quebra, em toda a face já quebrada e
  * espalhada pelo vento. Usada para cor e rugosidade da água.
  */
@@ -127,7 +138,8 @@ export function foamAt(w: WaveState, x: number, z: number): number {
   const whitewater = broken * smoothstep(-1.5, 0.5, s) * (1 - smoothstep(faceWidth(w) * 0.8, faceWidth(w) * 1.5, s));
   const streaks = 0.5 + 0.5 * Math.sin(x * 1.7 + z * 0.9 + Math.sin(z * 0.6 + w.time) * 2);
   const windBlown = (w.pool ? 0 : w.windSpeed / 40) * Math.exp(-Math.pow((s - 0.8 * w.windDir.z) / 1.2, 2)) * nearBreak;
-  return Math.min(1, crestBand * (0.6 + 0.4 * streaks) + whitewater * (0.65 + 0.35 * streaks) + windBlown * 0.4);
+  const residue = broken * residueProfile(s, faceWidth(w));
+  return Math.min(1, crestBand * (0.6 + 0.4 * streaks) + whitewater * (0.65 + 0.35 * streaks) + windBlown * 0.4 + residue * (0.4 + 0.6 * streaks));
 }
 
 /**
@@ -143,6 +155,7 @@ export class FieldSampler {
   private band = new Float32Array(FieldSampler.N);
   private white = new Float32Array(FieldSampler.N);
   private wind = new Float32Array(FieldSampler.N);
+  private residue = new Float32Array(FieldSampler.N);
   private inv: number;
 
   constructor(public w: WaveState) {
@@ -157,6 +170,7 @@ export class FieldSampler {
       this.profile[i] = mainProfile(w, s);
       this.band[i] = Math.exp(-Math.pow((s - 0.15) / 0.55, 2));
       this.white[i] = smoothstep(-1.5, 0.5, s) * (1 - smoothstep(F * 0.8, F * 1.5, s));
+      this.residue[i] = residueProfile(s, F);
       this.wind[i] = windK * Math.exp(-Math.pow((s - 0.8 * w.windDir.z) / 1.2, 2));
     }
   }
@@ -192,7 +206,8 @@ export class FieldSampler {
     const crestBand = this.at(this.band, s) * (0.35 + 0.65 * col.nearBreak);
     const whitewater = col.broken * this.at(this.white, s);
     const windBlown = this.at(this.wind, s) * col.nearBreak;
-    return Math.min(1, crestBand * (0.6 + 0.4 * streaks) + whitewater * (0.65 + 0.35 * streaks) + windBlown * 0.4);
+    const residue = col.broken * this.at(this.residue, s);
+    return Math.min(1, crestBand * (0.6 + 0.4 * streaks) + whitewater * (0.65 + 0.35 * streaks) + windBlown * 0.4 + residue * (0.4 + 0.6 * streaks));
   }
 }
 
