@@ -1,0 +1,70 @@
+/* GERADO por brand/tools/build_brand.py a partir de brand/design-system/tokens.json. Nao edite. */
+
+@font-face { font-family: 'Anton'; src: url('./fonts/anton-latin-400-normal.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Barlow'; src: url('./fonts/barlow-latin-400-normal.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Barlow'; src: url('./fonts/barlow-latin-500-normal.woff2') format('woff2'); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Barlow'; src: url('./fonts/barlow-latin-600-normal.woff2') format('woff2'); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Barlow'; src: url('./fonts/barlow-latin-700-normal.woff2') format('woff2'); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Barlow Condensed'; src: url('./fonts/barlow-condensed-latin-500-normal.woff2') format('woff2'); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Barlow Condensed'; src: url('./fonts/barlow-condensed-latin-600-normal.woff2') format('woff2'); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Barlow Condensed'; src: url('./fonts/barlow-condensed-latin-700-normal.woff2') format('woff2'); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Barlow Condensed'; src: url('./fonts/barlow-condensed-latin-800-normal.woff2') format('woff2'); font-weight: 800; font-style: normal; font-display: swap; }
+
+:root {
+  --es-underground-black: #0A0A0A;
+  --es-rebel-red: #E30613;
+  --es-pure-white: #FFFFFF;
+  --es-concrete-gray: #808080;
+  --es-asphalt-gray: #242424;
+  --es-signal-red: #FF3B45;
+  --es-red-pressed: #B0040F;
+  --es-red-hover: #FF1A27;
+  --es-concrete-light: #B3B3B3;
+  --es-asphalt-raised: #2E2E2E;
+  --es-asphalt-deep: #161616;
+  --es-line: rgba(255,255,255,0.10);
+  --es-line-strong: rgba(255,255,255,0.24);
+  --es-signal-amber: #FFB020;
+  --es-positive: #FFFFFF;
+  --es-negative: #FF3B45;
+  --es-font-display: 'Anton', Impact, 'Arial Narrow', sans-serif;
+  --es-font-ui: 'Barlow', 'Segoe UI', system-ui, sans-serif;
+  --es-font-numeric: 'Barlow Condensed', 'Arial Narrow', sans-serif;
+  --es-fs-hero: clamp(48px, 7vw, 104px);
+  --es-fs-h1: clamp(30px, 3vw, 44px);
+  --es-fs-h2: 24px;
+  --es-fs-item: 16px;
+  --es-fs-body: 15px;
+  --es-fs-small: 13px;
+  --es-fs-label: 12.5px;
+  --es-fs-score-xl: clamp(56px, 7vw, 96px);
+  --es-fs-score-l: 32px;
+  --es-sp-1: 4px;
+  --es-sp-2: 8px;
+  --es-sp-3: 12px;
+  --es-sp-4: 16px;
+  --es-sp-5: 24px;
+  --es-sp-6: 32px;
+  --es-sp-7: 48px;
+  --es-radius-none: 0;
+  --es-radius-sm: 2px;
+  --es-radius-md: 3px;
+  --es-radius-pill: 999px;
+  --es-cut-sm: 8px;
+  --es-cut-md: 12px;
+  --es-cut-lg: 18px;
+  --es-shadow-panel: 0 18px 50px rgba(0,0,0,0.45);
+  --es-shadow-print: 3px 3px 0 #E30613;
+  --es-shadow-lift: 0 10px 24px rgba(0,0,0,0.5);
+  --es-dur-fast: 120ms;
+  --es-dur-base: 200ms;
+  --es-dur-slow: 420ms;
+  --es-ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --es-ease-punch: cubic-bezier(0.3, 1.6, 0.4, 1);
+  --es-slant: -11deg;
+  --es-z-hud: 5;
+  --es-z-modal: 10;
+  --es-z-toast: 20;
+  --es-z-lab: 40;
+  --es-z-loading: 50;
+}

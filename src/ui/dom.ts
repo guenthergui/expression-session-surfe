@@ -37,3 +37,12 @@ export function bind(root: HTMLElement, handlers: Record<string, (el: HTMLElemen
     });
   });
 }
+
+/** Troca o texto e, se mudou, dispara a animação curta de pontuação (.bump). */
+export function bumpText(node: HTMLElement, text: string) {
+  if (node.textContent === text) return;
+  node.textContent = text;
+  node.classList.remove('bump');
+  void node.offsetWidth;
+  node.classList.add('bump');
+}

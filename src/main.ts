@@ -13,9 +13,25 @@ const text = document.getElementById('loading-text')!;
 function fail(err: unknown) {
   text.textContent = `Não foi possível iniciar o jogo: ${err instanceof Error ? err.message : String(err)}. Verifique se o navegador tem WebGL ativado.`;
   fill.style.width = '100%';
-  fill.style.background = '#ff6262';
+  fill.style.background = '#FFB020';
   console.error(err);
 }
+
+// Trilho preenchido dos controles deslizantes (o Chromium não tem pseudo-elemento
+// de progresso): mantém a variável --fill de cada input range em dia.
+function syncRange(input: HTMLInputElement) {
+  const min = Number(input.min || 0);
+  const max = Number(input.max || 100);
+  input.style.setProperty('--fill', `${((Number(input.value) - min) / (max - min || 1)) * 100}%`);
+}
+document.addEventListener('input', (e) => {
+  if (e.target instanceof HTMLInputElement && e.target.type === 'range') syncRange(e.target);
+});
+new MutationObserver((list) => {
+  // Só quando entram elementos (troca de tela); textos do HUD não contam.
+  if (!list.some((m) => [...m.addedNodes].some((n) => n instanceof Element))) return;
+  ui.querySelectorAll<HTMLInputElement>('input[type=range]').forEach(syncRange);
+}).observe(ui, { childList: true, subtree: true });
 
 function start() {
   fill.style.width = '40%';

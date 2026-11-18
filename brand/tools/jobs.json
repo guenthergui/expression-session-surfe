@@ -1,0 +1,392 @@
+[
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-logo-primary.svg",
+  "out": "brand/logos/png/es-logo-primary.png",
+  "width": 2400
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-logo-primary-textured.svg",
+  "out": "brand/logos/png/es-logo-primary-textured.png",
+  "width": 2400
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-logo-primary-black.svg",
+  "out": "brand/logos/png/es-logo-primary-black.png",
+  "width": 2400
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-logo-primary-white.svg",
+  "out": "brand/logos/png/es-logo-primary-white.png",
+  "width": 2400
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-logo-primary-red.svg",
+  "out": "brand/logos/png/es-logo-primary-red.png",
+  "width": 2400
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-logo-mono-black.svg",
+  "out": "brand/logos/png/es-logo-mono-black.png",
+  "width": 2400
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-logo-wordmark.svg",
+  "out": "brand/logos/png/es-logo-wordmark.png",
+  "width": 2400
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-logo-horizontal.svg",
+  "out": "brand/logos/png/es-logo-horizontal.png",
+  "width": 2400
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-logo-horizontal-black.svg",
+  "out": "brand/logos/png/es-logo-horizontal-black.png",
+  "width": 2400
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-logo-horizontal-textured.svg",
+  "out": "brand/logos/png/es-logo-horizontal-textured.png",
+  "width": 2400
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-logo-vertical.svg",
+  "out": "brand/logos/png/es-logo-vertical.png",
+  "width": 2400
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-logo-vertical-black.svg",
+  "out": "brand/logos/png/es-logo-vertical-black.png",
+  "width": 2400
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-logo-compact.svg",
+  "out": "brand/logos/png/es-logo-compact.png",
+  "width": 2400
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-logo-compact-black.svg",
+  "out": "brand/logos/png/es-logo-compact-black.png",
+  "width": 2400
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-symbol.svg",
+  "out": "brand/logos/png/es-symbol.png",
+  "width": 2400
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-symbol-black.svg",
+  "out": "brand/logos/png/es-symbol-black.png",
+  "width": 2400
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-symbol-white.svg",
+  "out": "brand/logos/png/es-symbol-white.png",
+  "width": 2400
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-symbol-red.svg",
+  "out": "brand/logos/png/es-symbol-red.png",
+  "width": 2400
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-monogram-badge.svg",
+  "out": "brand/logos/png/es-monogram-badge.png",
+  "width": 2400
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-app-icon.svg",
+  "out": "brand/logos/png/es-app-icon.png",
+  "width": 1024
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-favicon.svg",
+  "out": "brand/logos/png/es-favicon.png",
+  "width": 512
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-splash.svg",
+  "out": "brand/logos/png/es-splash.png",
+  "width": 1920
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-favicon.svg",
+  "out": "brand/logos/png/sizes/es-icon-16.png",
+  "width": 16
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-favicon.svg",
+  "out": "brand/logos/png/sizes/es-icon-32.png",
+  "width": 32
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-favicon.svg",
+  "out": "brand/logos/png/sizes/es-icon-48.png",
+  "width": 48
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-app-icon.svg",
+  "out": "brand/logos/png/sizes/es-icon-180.png",
+  "width": 180
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-app-icon.svg",
+  "out": "brand/logos/png/sizes/es-icon-192.png",
+  "width": 192
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-app-icon.svg",
+  "out": "brand/logos/png/sizes/es-icon-512.png",
+  "width": 512
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-favicon.svg",
+  "out": "public/favicon-32.png",
+  "width": 32
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-app-icon.svg",
+  "out": "public/apple-touch-icon.png",
+  "width": 180
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/svg/es-app-icon.svg",
+  "out": "public/icon-512.png",
+  "width": 512
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/proposals/proposal-a-lip-slash.svg",
+  "out": "brand/logos/proposals/proposal-a-lip-slash.png",
+  "width": 1600
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/proposals/proposal-b-air-loop.svg",
+  "out": "brand/logos/proposals/proposal-b-air-loop.png",
+  "width": 1600
+ },
+ {
+  "type": "svg",
+  "src": "brand/logos/proposals/proposal-c-stencil-tape.svg",
+  "out": "brand/logos/proposals/proposal-c-stencil-tape.png",
+  "width": 1600
+ },
+ {
+  "type": "svg",
+  "src": "brand/icons/icon-sheet.svg",
+  "out": "brand/icons/icon-sheet.png",
+  "width": 1920
+ },
+ {
+  "type": "svg",
+  "src": "brand/textures/grain.svg",
+  "out": "brand/textures/png/grain.png",
+  "width": 1024
+ },
+ {
+  "type": "svg",
+  "src": "brand/textures/paper.svg",
+  "out": "brand/textures/png/paper.png",
+  "width": 1024
+ },
+ {
+  "type": "svg",
+  "src": "brand/textures/asphalt.svg",
+  "out": "brand/textures/png/asphalt.png",
+  "width": 1024
+ },
+ {
+  "type": "svg",
+  "src": "brand/textures/concrete.svg",
+  "out": "brand/textures/png/concrete.png",
+  "width": 1024
+ },
+ {
+  "type": "svg",
+  "src": "brand/textures/spray.svg",
+  "out": "brand/textures/png/spray.png",
+  "width": 1200
+ },
+ {
+  "type": "svg",
+  "src": "brand/textures/halftone.svg",
+  "out": "brand/textures/png/halftone.png",
+  "width": 1200
+ },
+ {
+  "type": "svg",
+  "src": "brand/textures/brush.svg",
+  "out": "brand/textures/png/brush.png",
+  "width": 1200
+ },
+ {
+  "type": "svg",
+  "src": "brand/textures/impact.svg",
+  "out": "brand/textures/png/impact.png",
+  "width": 1000
+ },
+ {
+  "type": "svg",
+  "src": "brand/patterns/speed-lines.svg",
+  "out": "brand/patterns/png/speed-lines.png",
+  "width": 512
+ },
+ {
+  "type": "svg",
+  "src": "brand/patterns/diagonal-hazard.svg",
+  "out": "brand/patterns/png/diagonal-hazard.png",
+  "width": 512
+ },
+ {
+  "type": "svg",
+  "src": "brand/patterns/monogram-repeat.svg",
+  "out": "brand/patterns/png/monogram-repeat.png",
+  "width": 512
+ },
+ {
+  "type": "svg",
+  "src": "brand/patterns/trajectory.svg",
+  "out": "brand/patterns/png/trajectory.png",
+  "width": 512
+ },
+ {
+  "type": "svg",
+  "src": "brand/patterns/chevron-lip.svg",
+  "out": "brand/patterns/png/chevron-lip.png",
+  "width": 512
+ },
+ {
+  "type": "svg",
+  "src": "brand/patterns/halftone-tile.svg",
+  "out": "brand/patterns/png/halftone-tile.png",
+  "width": 512
+ },
+ {
+  "type": "svg",
+  "src": "brand/promotional/stickers/sticker-monogram.svg",
+  "out": "brand/promotional/stickers/png/sticker-monogram.png",
+  "width": 1200
+ },
+ {
+  "type": "svg",
+  "src": "brand/promotional/stickers/sticker-slogan.svg",
+  "out": "brand/promotional/stickers/png/sticker-slogan.png",
+  "width": 1200
+ },
+ {
+  "type": "svg",
+  "src": "brand/promotional/stickers/stamp-official.svg",
+  "out": "brand/promotional/stickers/png/stamp-official.png",
+  "width": 1200
+ },
+ {
+  "type": "svg",
+  "src": "brand/promotional/stickers/stamp-new-record.svg",
+  "out": "brand/promotional/stickers/png/stamp-new-record.png",
+  "width": 1200
+ },
+ {
+  "type": "svg",
+  "src": "brand/promotional/stickers/sticker-above-the-lip.svg",
+  "out": "brand/promotional/stickers/png/sticker-above-the-lip.png",
+  "width": 1200
+ },
+ {
+  "type": "svg",
+  "src": "brand/promotional/stickers/sticker-underground.svg",
+  "out": "brand/promotional/stickers/png/sticker-underground.png",
+  "width": 1200
+ },
+ {
+  "type": "svg",
+  "src": "brand/promotional/stickers/frame-tape.svg",
+  "out": "brand/promotional/stickers/png/frame-tape.png",
+  "width": 1200
+ },
+ {
+  "type": "svg",
+  "src": "brand/mockups/boards/board-lip-slash.svg",
+  "out": "brand/mockups/boards/png/board-lip-slash.png",
+  "width": 600
+ },
+ {
+  "type": "svg",
+  "src": "brand/mockups/boards/board-underground.svg",
+  "out": "brand/mockups/boards/png/board-underground.png",
+  "width": 600
+ },
+ {
+  "type": "svg",
+  "src": "brand/mockups/boards/board-halftone-rebel.svg",
+  "out": "brand/mockups/boards/png/board-halftone-rebel.png",
+  "width": 600
+ },
+ {
+  "type": "svg",
+  "src": "brand/mockups/boards/board-concrete-chevron.svg",
+  "out": "brand/mockups/boards/png/board-concrete-chevron.png",
+  "width": 600
+ },
+ {
+  "type": "svg",
+  "src": "brand/mockups/boards/board-lineup.svg",
+  "out": "brand/mockups/boards/png/board-lineup.png",
+  "width": 2000
+ },
+ {
+  "type": "svg",
+  "src": "brand/mockups/apparel/tee-black-wordmark.svg",
+  "out": "brand/mockups/apparel/png/tee-black-wordmark.png",
+  "width": 1000
+ },
+ {
+  "type": "svg",
+  "src": "brand/mockups/apparel/tee-white-monogram.svg",
+  "out": "brand/mockups/apparel/png/tee-white-monogram.png",
+  "width": 1000
+ },
+ {
+  "type": "svg",
+  "src": "brand/mockups/apparel/tee-red-underground.svg",
+  "out": "brand/mockups/apparel/png/tee-red-underground.png",
+  "width": 1000
+ },
+ {
+  "type": "svg",
+  "src": "brand/mockups/apparel/tee-lineup.svg",
+  "out": "brand/mockups/apparel/png/tee-lineup.png",
+  "width": 2000
+ }
+]

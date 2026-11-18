@@ -1,0 +1,31 @@
+/* Base das pecas promocionais EXPRESSION SESSION. Edite aqui o que vale para todas. */
+@font-face { font-family: 'Anton'; src: url('../../../src/ui/fonts/anton-latin-400-normal.woff2'); }
+@font-face { font-family: 'Barlow'; font-weight: 500; src: url('../../../src/ui/fonts/barlow-latin-500-normal.woff2'); }
+@font-face { font-family: 'Barlow'; font-weight: 700; src: url('../../../src/ui/fonts/barlow-latin-700-normal.woff2'); }
+@font-face { font-family: 'Barlow Condensed'; font-weight: 700; src: url('../../../src/ui/fonts/barlow-condensed-latin-700-normal.woff2'); }
+@font-face { font-family: 'Barlow Condensed'; font-weight: 800; src: url('../../../src/ui/fonts/barlow-condensed-latin-800-normal.woff2'); }
+:root { --black:#0A0A0A; --red:#E30613; --white:#FFFFFF; --concrete:#808080; --asphalt:#242424; --slant:-11deg; }
+* { box-sizing: border-box; }
+html, body { margin: 0; overflow: hidden; background: var(--black); color: var(--white); font-family: 'Barlow', sans-serif; }
+.piece { position: relative; }
+.abs { position: absolute; }
+/* Foto do jogo em P&B de alto contraste (direcao fotografica) */
+.photo { position: absolute; background-size: cover; background-position: center; filter: grayscale(1) contrast(1.45) brightness(0.92); }
+.photo.color { filter: contrast(1.1) saturate(1.05); }
+.photo::after { content: ''; position: absolute; inset: 0; background: radial-gradient(circle at 50% 45%, transparent 40%, rgba(10,10,10,0.55)); }
+/* Reticula de serigrafia sobre a foto */
+.halftone { position: absolute; inset: 0; background-image: radial-gradient(rgba(10,10,10,0.55) 28%, transparent 30%); background-size: 6px 6px; mix-blend-mode: multiply; opacity: 0.55; }
+.grain { position: absolute; inset: 0; pointer-events: none; opacity: 0.09; mix-blend-mode: screen;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1.4 -0.55'/></filter><rect width='220' height='220' filter='url(%23n)'/></svg>"); }
+.slash { position: absolute; background: var(--red); transform: skewX(var(--slant)); }
+.band { position: absolute; background: var(--black); transform: skewX(var(--slant)); }
+.logo { position: absolute; display: block; }
+.anton { font-family: 'Anton', sans-serif; text-transform: uppercase; line-height: 0.92; letter-spacing: 0.01em; }
+.cond { font-family: 'Barlow Condensed', sans-serif; font-weight: 800; text-transform: uppercase; letter-spacing: 0.22em; }
+.red { color: var(--red); }
+.print { text-shadow: 0.06em 0.06em 0 var(--red); }
+.tape { position: absolute; background: rgba(255,255,255,0.9); height: 44px; }
+.frame { position: absolute; border: 16px solid var(--white); }
+.rule { position: absolute; height: 6px; background: var(--red); }
+.cta { position: absolute; font-family: 'Barlow Condensed', sans-serif; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; background: var(--red); color: #fff; clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px); display: flex; align-items: center; }
+.stamp { position: absolute; font-family: 'Anton'; text-transform: uppercase; color: var(--red); border: 8px solid var(--red); padding: 4px 22px; transform: rotate(-5deg); }

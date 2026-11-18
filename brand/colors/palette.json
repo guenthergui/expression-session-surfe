@@ -1,0 +1,83 @@
+{
+  "brand": {
+    "underground-black": {
+      "value": "#0A0A0A",
+      "rgb": "10 10 10",
+      "cmyk": "0 0 0 96",
+      "use": "Fundo principal e identidade (60%)"
+    },
+    "rebel-red": {
+      "value": "#E30613",
+      "rgb": "227 6 19",
+      "cmyk": "0 97 92 11",
+      "use": "Destaques, ações e energia (10%)"
+    },
+    "pure-white": {
+      "value": "#FFFFFF",
+      "rgb": "255 255 255",
+      "cmyk": "0 0 0 0",
+      "use": "Textos, logotipo e contraste (25%)"
+    },
+    "concrete-gray": {
+      "value": "#808080",
+      "rgb": "128 128 128",
+      "cmyk": "0 0 0 50",
+      "use": "Informações secundárias (5%)"
+    },
+    "asphalt-gray": {
+      "value": "#242424",
+      "rgb": "36 36 36",
+      "cmyk": "0 0 0 86",
+      "use": "Painéis e superfícies"
+    }
+  },
+  "support": {
+    "signal-red": {
+      "value": "#FF3B45",
+      "use": "Vermelho para TEXTO pequeno sobre preto/asfalto (o Rebel Red fica abaixo de 4,5:1)"
+    },
+    "red-pressed": {
+      "value": "#B0040F",
+      "use": "Estado pressionado de ações vermelhas"
+    },
+    "red-hover": {
+      "value": "#FF1A27",
+      "use": "Hover de ações vermelhas"
+    },
+    "concrete-light": {
+      "value": "#B3B3B3",
+      "use": "Texto secundário sobre asfalto (contraste AA)"
+    },
+    "asphalt-raised": {
+      "value": "#2E2E2E",
+      "use": "Superfície em hover"
+    },
+    "asphalt-deep": {
+      "value": "#161616",
+      "use": "Superfície rebaixada, trilhos de barra"
+    },
+    "line": {
+      "value": "rgba(255,255,255,0.10)",
+      "use": "Divisórias"
+    },
+    "line-strong": {
+      "value": "rgba(255,255,255,0.24)",
+      "use": "Contornos de controles"
+    }
+  },
+  "functional": {
+    "$note": "Uso funcional apenas, nunca como cor de marca: avisos e estados que precisam ser lidos fora do vermelho.",
+    "signal-amber": {
+      "value": "#FFB020",
+      "use": "Aviso (pouso instável, decolagem recusada)"
+    },
+    "positive": {
+      "value": "#FFFFFF",
+      "use": "Resultado positivo: branco + sinal/ícone (sem verde)"
+    },
+    "negative": {
+      "value": "#FF3B45",
+      "use": "Resultado negativo / queda"
+    }
+  }
+}
