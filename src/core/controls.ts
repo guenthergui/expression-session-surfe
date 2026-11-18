@@ -165,6 +165,12 @@ export class KeyboardControls {
   private down = new Set<string>();
   /** Teclas apertadas depois da última decolagem (o ↑ do flip precisa ser um toque novo). */
   private fresh = new Set<string>();
+  /**
+   * Direção contínua de um analógico (controle), y + para cima. Quando existe,
+   * substitui as setas na linha da face e no ângulo da compressão; giro e flip
+   * continuam vindo das setas (o analógico também as aperta).
+   */
+  analog: { x: number; y: number } | null = null;
 
   /**
    * Tecla apertada. A repetição automática do teclado (repeat) só vale para
@@ -203,6 +209,7 @@ export class KeyboardControls {
     const y = (d('ArrowUp') ? 1 : 0) - (d('ArrowDown') ? 1 : 0);
     inp.compress = d('Space');
     inp.pump = d('KeyW');
+    const an = this.analog;
     if (airborne) {
       inp.spin = x;
       inp.flip = d('ArrowUp') && this.fresh.has('ArrowUp');
@@ -211,11 +218,19 @@ export class KeyboardControls {
       // ← → carregam o giro; ↑ deixa a subida mais vertical, ↓ abre a
       // diagonal; sem ↑ nem ↓ a linha fica travada (sim/waveRun.ts).
       inp.spin = x;
-      if (y !== 0) {
+      if (an && Math.abs(an.y) > 0.15) {
+        // Analógico: o ângulo da subida vai de aberto (para baixo) a vertical (para cima).
+        const a = COMPRESS_OPEN + (COMPRESS_STEEP - COMPRESS_OPEN) * Math.min(1, Math.max(0, (an.y + 1) / 2));
+        inp.aimX = Math.cos(a);
+        inp.aimY = Math.sin(a);
+      } else if (y !== 0) {
         const a = y > 0 ? COMPRESS_STEEP : COMPRESS_OPEN;
         inp.aimX = Math.cos(a);
         inp.aimY = Math.sin(a);
       }
+    } else if (an) {
+      inp.aimX = an.x;
+      inp.aimY = an.y;
     } else {
       inp.aimX = x;
       inp.aimY = y;

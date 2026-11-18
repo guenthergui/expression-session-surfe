@@ -38,6 +38,11 @@ Abra o endereço que aparecer no terminal (normalmente http://localhost:5180).
 | `Esc` | Pausa durante a bateria; nos menus, volta |
 | `←` `→` `↑` `↓` `+` `-` | No vestiário: girar e aproximar a prévia 3D |
 
+**Controle (gamepad):** analógico esquerdo ou direcional = setas (o analógico
+faz curvas graduais e escolhe o ângulo exato da compressão) · `A` = Espaço e
+drop · `X` = bombear · `B` Indy · `Y` Grab · `LB` Method · `RB` Stalefish ·
+`LT` Tail · `RT` extensão e varial · `Start` = pausa. Vibra no pouso e na queda.
+
 Só aéreos pontuam. Curvas, cavadas e batidas são o caminho até eles.
 
 No **Vestiário** dá para mudar tom de pele, olhos, sobrancelhas, barba, corte e

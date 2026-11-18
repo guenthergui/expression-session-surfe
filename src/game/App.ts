@@ -7,6 +7,7 @@ import { findLocation } from '../data/locations';
 import { clampSetup, generateWaveConditions, type HeatSetup } from '../core/conditions';
 import { KeyReplay, KeyboardControls, RIDE_CODES, emptyInput, type SurferInput } from '../core/controls';
 import { challengeHint, guideFor, type GuidePhase } from '../core/maneuverGuide';
+import { GamepadBridge, readPad, rumble } from '../core/gamepad';
 import { HeatSession, type WaveEnd, type WaveResult } from '../core/heat';
 import type { CameraMode } from '../core/save';
 import { GRAB_LABELS, MANEUVERS, findManeuver } from '../core/maneuvers';
@@ -127,6 +128,9 @@ export class App implements MenuHost {
   private slowMo = true;
   /** Força da curva para o som da quilha (0 a 1, suavizada). */
   private carveLevel = 0;
+  /** Controle (gamepad) traduzido em teclas. */
+  private pad = new GamepadBridge();
+  private padRef: Gamepad | null = null;
   /** Câmera orbital do vestiário. */
   private showcase: { focus: LockerFocus; air: boolean; yaw: number; pitch: number; dist: number; base: number; target: THREE.Vector3 } | null = null;
 
@@ -804,6 +808,19 @@ export class App implements MenuHost {
     this.keys.release(e.code);
   }
 
+  /** Lê o controle e entrega os botões como as teclas equivalentes. */
+  private pollPad() {
+    const r = readPad();
+    this.padRef = r?.pad ?? null;
+    const f = this.pad.update(r?.state ?? null);
+    const ev = (code: string) => ({ code, repeat: false, target: null, preventDefault() {} }) as unknown as KeyboardEvent;
+    // Nos menus que não aceitam Espaço, o A confirma como Enter.
+    const menuA = (c: string) => (c === 'Space' && this.mode !== 'ride' && !SPACE_MODES.includes(this.mode) ? 'Enter' : c);
+    for (const c of f.release) this.onKeyUp(ev(menuA(c)));
+    for (const c of f.press) this.onKey(ev(menuA(c)));
+    this.keys.analog = f.aim;
+  }
+
   /** Eventos da simulação: decolagem, pouso, recusas, queda e fim da onda. */
   private handleEvents(r: Ride) {
     for (const e of r.run.drain()) {
@@ -817,6 +834,7 @@ export class App implements MenuHost {
         case 'land': {
           const ok = e.landing.outcome !== 'queda';
           if (ok) this.sfx.land(e.landing.outcome === 'limpa' ? 1.2 : 0.8);
+          if (ok && !r.demo) rumble(this.padRef, e.landing.outcome === 'instavel' ? 0.8 : 0.45);
           if (r.demo) break;
           if (r.result || !this.heat) break;
           const a = this.heat.registerAerial(e.record, e.landing);
@@ -843,6 +861,7 @@ export class App implements MenuHost {
           break;
         case 'fall':
           this.sfx.splash();
+          if (!r.demo) rumble(this.padRef, 1, 320);
           r.rideAwayAt = null;
           if (!r.demo && !r.result) {
             if (e.cause === 'fechou') popup(this.ui, 'A onda fechou!', 'bad', '50%', '38%');
@@ -947,6 +966,7 @@ export class App implements MenuHost {
   // ---------- Quadro ----------
 
   frame(dt: number) {
+    this.pollPad();
     this.world.stage.setSharp(MENU_MODES.includes(this.mode));
     if (this.paused) {
       // Pausado: só redesenha a cena parada.

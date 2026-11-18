@@ -382,6 +382,8 @@ export function helpModal(parent: HTMLElement) {
         <div class="help-list">
           ${CONTROL_LEGEND.ar.map(([k, t]) => `<span class="kbd">${esc(k)}</span><span>${esc(t)}</span>`).join('')}
         </div>
+        <h3 style="margin:10px 0 4px">Com controle</h3>
+        <div class="muted">Analógico esquerdo ou direcional = setas (o analógico faz curvas graduais) · A = Espaço e drop · X = bombear · B Indy · Y Grab · LB Method · RB Stalefish · LT Tail · RT extensão e varial · Start = pausa. O controle vibra no pouso e na queda.</div>
         <div class="muted">Velocidade e ângulo de subida decidem a altura; carregar o giro na compressão e segurar as setas no começo do voo decide a rotação. Solte o grab e aperte ↓ antes de tocar a água, com a prancha alinhada e o peso sobre os pés. Depois do pouso, saia surfando para ganhar o bônus e emende outro aéreo.</div>
         <div class="actions"><button class="btn" data-action="ok">Entendi</button></div>
       </div>
