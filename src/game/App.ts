@@ -20,7 +20,7 @@ import { apexSlowStrength } from '../sim/airPhysics';
 import { DROP_TIME, WaveRun, type RunEvent, type RunParams } from '../sim/waveRun';
 import { World } from '../render/World';
 import { bind } from '../ui/dom';
-import { OUTCOME_TEXT, challengeCard, heatResultScreen, hud, introCard, popup, practiceResultCard, rideHud, waveResultCard, wheel, wheelTarget } from '../ui/heatViews';
+import { OUTCOME_TEXT, challengeCard, heatResultScreen, hud, introCard, popup, practiceResultCard, rideHud, scoreCard, waveResultCard, wheel, wheelTarget } from '../ui/heatViews';
 import { practiceScreen, trainingScreen, updateTraining, type TrainingFrame } from '../ui/training';
 import { lockerScreen, type LockerFocus, type LockerView } from '../ui/locker';
 import { confirmModal, helpModal, menuScreen, pauseMenu, settingsScreen, setupScreen, skillsScreen, type MenuHost } from '../ui/screens';
@@ -841,10 +841,9 @@ export class App implements MenuHost {
           const cheer = { limpa: 0.85, concluida: 0.55, instavel: 0.3, queda: 0 }[e.landing.outcome] ?? 0;
           if (ok) setTimeout(() => this.sfx.cheer(Math.min(1, cheer + (a.challenge ? 0.15 : 0))), 250);
           const [txt, cls] = OUTCOME_TEXT[e.landing.outcome];
-          popup(this.ui, a.name, cls, '50%', '20%', true);
-          setTimeout(() => popup(this.ui, ok ? `${txt} +${a.points}` : `${txt} ${e.landing.note}`, cls, '50%', '29%'), 220);
+          scoreCard(this.ui, { name: a.name, outcome: txt, cls, points: ok ? a.points : null, note: ok ? undefined : e.landing.note, challenge: a.challenge && !this.practice });
           if (a.challenge) {
-            setTimeout(() => popup(this.ui, this.practice ? 'CONSEGUIU!' : 'DESAFIO CUMPRIDO ×1,5', 'warn', '50%', '36%'), 500);
+            if (this.practice) setTimeout(() => popup(this.ui, 'CONSEGUIU!', 'warn', '50%', '30%'), 400);
             this.markChallenge(true);
           } else if (ok && !this.heat.wave.some((w) => w.challenge)) {
             const hint = challengeHint(a.recognized, r.challenge);

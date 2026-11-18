@@ -31,12 +31,22 @@ export function conditionChips(c: Conditions, locationId: string): string {
 export function hud(heat: HeatSession, shown?: { wave: number; conditions: Conditions }): HTMLElement {
   const wave = shown?.wave ?? Math.min(heat.waveIndex + 1, WAVES_PER_HEAT);
   const cond = shown?.conditions ?? heat.currentConditions;
+  // Placar no estilo de transmissão: faixa do campeonato, ondas da bateria
+  // (as surfadas com a nota), total e combo.
+  const pips = Array.from({ length: WAVES_PER_HEAT }, (_, i) => {
+    const r = heat.results[i];
+    const cls = r ? 'done' : i === wave - 1 ? 'now' : '';
+    return `<span class="pip ${cls}" title="Onda ${i + 1}">${r ? r.total : i + 1}</span>`;
+  }).join('');
   return el(`
     <div class="hud-top">
-      <div class="panel score-box">
-        <div><div class="label">Onda</div><div class="big">${wave}/${WAVES_PER_HEAT}</div></div>
-        <div><div class="label">Total</div><div class="big" data-hud="total">${heat.total}</div></div>
-        <div><div class="label">Combo</div><div class="big ${heat.combo ? 'warn' : ''}" data-hud="combo">x${heat.combo}</div></div>
+      <div class="scoreboard">
+        <div class="sb-strip"><span class="sb-live">AO VIVO</span><span>Bateria · ${esc(findLocation(heat.setup.locationId).name)}</span></div>
+        <div class="sb-body">
+          <div class="sb-waves" data-hud="pips">${pips}</div>
+          <div class="sb-total"><span class="label">Total</span><b data-hud="total">${heat.total}</b></div>
+          <div class="sb-combo ${heat.combo ? 'on' : ''}"><span class="label">Combo</span><b data-hud="combo">x${heat.combo}</b></div>
+        </div>
       </div>
       <div class="panel cond-box">
         <span class="chip">${esc(findLocation(heat.setup.locationId).name)}</span>
@@ -271,6 +281,25 @@ export function heatResultScreen(sum: HeatSummary, rewards: HeatRewards): HTMLEl
         </div>
       </div>
     </div>`);
+}
+
+/**
+ * Cartão de nota (lower third de transmissão): nome do aéreo, resultado do
+ * pouso e pontos, entrando pela esquerda e saindo sozinho.
+ */
+export function scoreCard(parent: HTMLElement, o: { name: string; outcome: string; cls: string; points: number | null; note?: string; challenge?: boolean }, ms = 2600) {
+  parent.querySelectorAll('.score-card').forEach((n) => n.remove());
+  const c = el(`
+    <div class="score-card ${o.cls}" style="animation-duration:${ms}ms">
+      <div class="sc-accent"></div>
+      <div class="sc-main">
+        <div class="sc-name">${esc(o.name)}</div>
+        <div class="sc-sub"><span class="sc-outcome">${esc(o.outcome)}</span>${o.note ? ` · ${esc(o.note)}` : ''}${o.challenge ? ' · <span class="sc-ch">DESAFIO ×1,5</span>' : ''}</div>
+      </div>
+      ${o.points !== null ? `<div class="sc-points">${o.points}</div>` : ''}
+    </div>`);
+  parent.appendChild(c);
+  setTimeout(() => c.remove(), ms);
 }
 
 export function popup(parent: HTMLElement, text: string, cls: string, x: string, y: string, big = false, ms = 950) {

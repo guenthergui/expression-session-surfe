@@ -1713,3 +1713,227 @@ table.summary th {
     min-width: 0;
   }
 }
+
+/* ---------- Placar e cartão de nota (estilo transmissão) ---------- */
+
+.scoreboard {
+  display: grid;
+  min-width: 300px;
+  filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.35));
+  animation: sb-in 0.45s cubic-bezier(0.2, 0.9, 0.25, 1) both;
+}
+
+.sb-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 14px 4px 10px;
+  background: linear-gradient(90deg, var(--accent), #ff6f3c);
+  color: var(--accent-ink);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  clip-path: polygon(0 0, 100% 0, calc(100% - 12px) 100%, 0 100%);
+  width: fit-content;
+}
+
+.sb-live {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--accent-ink);
+  color: #fff;
+  font-size: 10.5px;
+}
+
+.sb-live::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin: 0 5px 1px 0;
+  border-radius: 50%;
+  background: var(--bad);
+  animation: sb-blink 1.4s ease-in-out infinite;
+}
+
+.sb-body {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 8px 18px 8px 12px;
+  background: linear-gradient(180deg, rgba(14, 28, 40, 0.96), rgba(7, 18, 27, 0.96));
+  border-left: 3px solid var(--accent);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 16px) 100%, 0 100%);
+}
+
+.sb-waves {
+  display: flex;
+  gap: 4px;
+}
+
+.pip {
+  min-width: 30px;
+  height: 26px;
+  padding: 0 5px;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  font-size: 12.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--dim);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--line);
+}
+
+.pip.done {
+  color: var(--ink);
+  background: rgba(57, 200, 214, 0.18);
+  border-color: rgba(57, 200, 214, 0.5);
+}
+
+.pip.now {
+  color: var(--accent-ink);
+  background: var(--warn);
+  border-color: var(--warn);
+}
+
+.sb-total,
+.sb-combo {
+  display: grid;
+  line-height: 1.05;
+}
+
+.sb-total .label,
+.sb-combo .label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.sb-total b {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.sb-combo b {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--dim);
+}
+
+.sb-combo.on b {
+  color: var(--warn);
+}
+
+.score-card {
+  position: absolute;
+  left: 0;
+  top: 58%;
+  display: flex;
+  align-items: stretch;
+  min-width: 360px;
+  max-width: calc(100vw - 32px);
+  pointer-events: none;
+  filter: drop-shadow(0 12px 28px rgba(0, 0, 0, 0.4));
+  animation: sc-life 2.6s cubic-bezier(0.2, 0.9, 0.25, 1) forwards;
+}
+
+.sc-accent {
+  width: 10px;
+  background: var(--accent);
+}
+
+.score-card.good .sc-accent { background: var(--good); }
+.score-card.warn .sc-accent { background: var(--warn); }
+.score-card.bad .sc-accent { background: var(--bad); }
+
+.sc-main {
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  padding: 10px 22px 10px 16px;
+  background: linear-gradient(90deg, rgba(7, 18, 27, 0.97), rgba(14, 28, 40, 0.94));
+}
+
+.sc-name {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.sc-sub {
+  font-size: var(--fs-small);
+  color: var(--muted);
+}
+
+.score-card.good .sc-outcome { color: var(--good); font-weight: 700; }
+.score-card.warn .sc-outcome { color: var(--warn); font-weight: 700; }
+.score-card.bad .sc-outcome { color: var(--bad); font-weight: 700; }
+
+.sc-ch {
+  color: var(--warn);
+  font-weight: 800;
+}
+
+.sc-points {
+  display: grid;
+  place-items: center;
+  padding: 0 22px 0 26px;
+  background: var(--ink);
+  color: var(--bg);
+  font-family: var(--font-display);
+  font-size: 38px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  clip-path: polygon(14px 0, 100% 0, calc(100% - 14px) 100%, 0 100%);
+  margin-left: -14px;
+}
+
+@keyframes sc-life {
+  0% { opacity: 0; transform: translateX(-60px); }
+  12% { opacity: 1; transform: translateX(16px); }
+  18% { transform: translateX(16px); }
+  86% { opacity: 1; transform: translateX(16px); }
+  100% { opacity: 0; transform: translateX(-30px); }
+}
+
+@keyframes sb-in {
+  from { opacity: 0; transform: translateY(-12px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes sb-blink {
+  50% { opacity: 0.25; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .score-card,
+  .scoreboard,
+  .sb-live::before {
+    animation-name: none;
+  }
+}
+
+/* Durante a onda, as condições saem da tela (já foram mostradas antes da roleta). */
+#ui:has(.ride-hud) .cond-box {
+  display: none;
+}
+
+/* O cartão herda a classe do resultado (good/warn/bad) só para o acento e o texto do pouso. */
+.score-card .sc-name {
+  color: var(--ink);
+}
+
+.score-card .sc-sub {
+  color: var(--muted);
+}
