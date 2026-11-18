@@ -125,6 +125,8 @@ export class App implements MenuHost {
   private training: { el: HTMLElement; maneuver: Maneuver; cache: { sig?: string; phase?: GuidePhase | null } } | null = null;
   /** Câmera lenta na demonstração do treino. */
   private slowMo = true;
+  /** Força da curva para o som da quilha (0 a 1, suavizada). */
+  private carveLevel = 0;
   /** Câmera orbital do vestiário. */
   private showcase: { focus: LockerFocus; air: boolean; yaw: number; pitch: number; dist: number; base: number; target: THREE.Vector3 } | null = null;
 
@@ -151,6 +153,7 @@ export class App implements MenuHost {
   go(screen: 'menu' | 'setup' | 'skills' | 'locker' | 'settings' | 'practice') {
     // Saindo do vestiário sem salvar: volta a aparência salva.
     if (this.mode === 'locker') this.world.setEquipment(this.setup.boardId, this.setup.finId, state.save.look);
+    this.sfx.stopRide();
     this.setPaused(false);
     this.showcase = null;
     this.world.setShowroom(false);
@@ -817,6 +820,8 @@ export class App implements MenuHost {
           if (r.demo) break;
           if (r.result || !this.heat) break;
           const a = this.heat.registerAerial(e.record, e.landing);
+          const cheer = { limpa: 0.85, concluida: 0.55, instavel: 0.3, queda: 0 }[e.landing.outcome] ?? 0;
+          if (ok) setTimeout(() => this.sfx.cheer(Math.min(1, cheer + (a.challenge ? 0.15 : 0))), 250);
           const [txt, cls] = OUTCOME_TEXT[e.landing.outcome];
           popup(this.ui, a.name, cls, '50%', '20%', true);
           setTimeout(() => popup(this.ui, ok ? `${txt} +${a.points}` : `${txt} ${e.landing.note}`, cls, '50%', '29%'), 220);
@@ -878,6 +883,7 @@ export class App implements MenuHost {
   }
 
   private endWave(r: Ride, endedBy: WaveEnd, delay: number) {
+    this.sfx.stopRide();
     const result = this.heat!.resolveWave(endedBy);
     r.result = result;
     r.endAt = r.time + delay;
@@ -973,6 +979,12 @@ export class App implements MenuHost {
       if (!r.demo) {
         this.updateRideHud(r, f.heightAboveWater);
         if (run.state === 'riding') this.sfx.setSurf(this.world.wave.power + run.speedFactor * 45, this.world.wave.windSpeed);
+        // Quilha e vento: a força da curva vem dos eventos de spray e decai devagar entre eles.
+        let carve = 0;
+        for (const e of f.events) if (e.kind === 'carve') carve = Math.max(carve, (e.strength - 0.45) / 1.1);
+        this.carveLevel = Math.max(Math.min(1, carve), this.carveLevel - dt * 2.5);
+        if (!r.result && (run.state === 'riding' || run.state === 'airborne')) this.sfx.setRide(f.speed, this.carveLevel, f.airborne, f.heightAboveWater);
+        else this.sfx.stopRide();
       }
       this.world.update(rideDt, r.time, f.boardPos.x);
       if (r.training && this.training) {
