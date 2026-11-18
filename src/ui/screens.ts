@@ -10,7 +10,8 @@ import { FAMILIES, QUALITIES, type CameraMode, type Quality } from '../core/save
 import { QUALITY } from '../render/Stage';
 import { ATTRIBUTE_KEYS, type PhaseMods } from '../core/types';
 import { persist, state } from '../game/state';
-import { bind, el, esc, signed } from './dom';
+import { bind, el, esc, hexColor, signed } from './dom';
+import logoSvg from './brand/logo.svg?raw';
 import { icon } from './icons';
 import { lockerScreen, type LockerHost } from './locker';
 
@@ -41,13 +42,14 @@ function modsHtml(mods: PhaseMods): string {
 export function menuScreen(host: MenuHost): HTMLElement {
   const s = state.save;
   const root = el(`
-    <div class="screen menu">
+    <div class="screen menu grain">
       <div class="menu-left">
-        <div class="logo">EXPRESSION<br/>SESSION<small>SURFE AÉREO</small></div>
+        <h1 class="logo" aria-label="Expression Session">${logoSvg}<small>SURFE AÉREO</small></h1>
+        <div class="slogan">Air is expression.</div>
         <div class="panel profile">
-          <div class="profile-row"><b>Nível ${s.level}</b><span class="muted">XP ${s.xp}/${xpToNext(s.level)}</span></div>
+          <div class="profile-row level"><b>Nível ${s.level}</b><span class="muted">XP ${s.xp}/${xpToNext(s.level)}</span></div>
           <div class="bar"><span style="width:${(s.xp / xpToNext(s.level)) * 100}%"></span></div>
-          <div class="profile-row"><span class="muted">Pontos de habilidade</span><b class="${s.skillPoints ? 'warn' : ''}">${s.skillPoints}</b></div>
+          <div class="profile-row"><span class="muted">Pontos de habilidade</span><b class="${s.skillPoints ? 'accent' : ''}">${s.skillPoints}</b></div>
           <div class="profile-row"><span class="muted">Recorde de bateria</span><b>${s.records.bestHeatScore}</b></div>
           <div class="profile-row"><span class="muted">Melhor onda · melhor combo</span><b>${s.records.bestWaveScore} · x${s.records.bestCombo}</b></div>
           <div class="profile-row"><span class="muted">Baterias · pousos</span><b>${s.records.heatsPlayed} · ${s.stats.landed}/${s.stats.waves}</b></div>
@@ -55,9 +57,9 @@ export function menuScreen(host: MenuHost): HTMLElement {
       </div>
       <div class="menu-buttons">
         <button class="btn" data-action="play">${icon('play')} Começar bateria <span class="kbd">Enter</span></button>
-        <button class="btn secondary" data-action="skills">${icon('chart')} Evolução do surfista${s.skillPoints ? ` <span class="kbd warn">${s.skillPoints} pts</span>` : ''}</button>
-        <button class="btn secondary" data-action="locker">${icon('shirt')} Vestiário</button>
-        <button class="btn secondary" data-action="settings">${icon('gear')} Configurações</button>
+        <button class="btn secondary" data-action="skills">${icon('stats')} Evolução do surfista${s.skillPoints ? ` <span class="kbd accent">${s.skillPoints} pts</span>` : ''}</button>
+        <button class="btn secondary" data-action="locker">${icon('equipment')} Vestiário</button>
+        <button class="btn secondary" data-action="settings">${icon('settings')} Configurações</button>
         <button class="btn secondary" data-action="help">${icon('help')} Como jogar</button>
       </div>
     </div>`);
@@ -84,12 +86,12 @@ export function setupScreen(host: MenuHost): HTMLElement {
         </div>
       </div>
       <div class="page-body">
-        <div class="panel section"><h3>Prancha</h3><div data-slot="boards" style="display:grid;gap:8px"></div></div>
+        <div class="panel section"><h3>${icon('board')} Prancha</h3><div data-slot="boards" style="display:grid;gap:8px"></div></div>
         <div style="display:grid;gap:18px">
-          <div class="panel section"><h3>Quilhas</h3><div data-slot="fins" style="display:grid;gap:8px"></div></div>
-          <div class="panel section"><h3>Local</h3><div data-slot="locs" style="display:grid;gap:8px"></div></div>
+          <div class="panel section"><h3>${icon('fin')} Quilhas</h3><div data-slot="fins" style="display:grid;gap:8px"></div></div>
+          <div class="panel section"><h3>${icon('beach')} Local</h3><div data-slot="locs" style="display:grid;gap:8px"></div></div>
         </div>
-        <div class="panel section"><h3>Condições do mar</h3><div data-slot="cond" style="display:grid;gap:12px"></div></div>
+        <div class="panel section"><h3>${icon('wave')} Condições do mar</h3><div data-slot="cond" style="display:grid;gap:12px"></div></div>
       </div>
     </div>`);
 
@@ -135,9 +137,16 @@ export function setupScreen(host: MenuHost): HTMLElement {
     const locs = root.querySelector<HTMLElement>('[data-slot=locs]')!;
     locs.innerHTML = LOCATIONS.map((l) => {
       const locked = !save.unlockedLocations.includes(l.id);
-      return `<div class="card ${l.id === setup.locationId ? 'selected' : ''} ${locked ? 'locked' : ''}" data-action="loc" data-id="${l.id}">
-        <div class="title">${esc(l.name)} <span class="muted">· ${esc(l.kind)}</span></div>
-        <div class="sub">${locked ? `Bloqueado: libera no nível ${l.unlockLevel}` : esc(l.description)}</div></div>`;
+      const v = l.visual;
+      // Faixa com as cores reais do lugar: céu/névoa, água rasa e água funda.
+      const art = `linear-gradient(180deg, ${hexColor(v.fogColor)} 0 42%, ${hexColor(v.shallowColor)} 42% 70%, ${hexColor(v.deepColor)} 100%)`;
+      const range = (r: [number, number], d = 0) => `${r[0].toFixed(d).replace('.', ',')}–${r[1].toFixed(d).replace('.', ',')}`;
+      return `<div class="card spot ${l.id === setup.locationId ? 'selected' : ''} ${locked ? 'locked' : ''}" data-action="loc" data-id="${l.id}">
+        <div class="spot-art" style="--spot-bg:${art}"><span>${esc(l.name)}</span></div>
+        <div class="spot-info">
+          <div class="spot-stats"><span>${esc(l.kind)}</span><span>Onda <b>${range(l.heightRange, 1)} m</b></span><span>Potência <b>${range(l.powerRange)}</b></span><span>${l.windAffects ? `Vento <b>até ${l.windSpeedRange[1]} km/h</b>` : '<b>Sem vento</b>'}</span></div>
+          <div class="sub">${locked ? `${icon('lock')} Bloqueado: libera no nível ${l.unlockLevel}` : esc(l.description)}</div>
+        </div></div>`;
     }).join('');
 
     const loc = findLocation(setup.locationId);
@@ -205,7 +214,7 @@ export function skillsScreen(host: MenuHost): HTMLElement {
       </div>
       <div class="page-body" style="grid-template-columns: minmax(420px, 2fr) minmax(280px, 1fr)">
         <div class="panel section">
-          <div class="header"><h3>Atributos</h3><span>Pontos disponíveis: <b class="${s.skillPoints ? 'warn' : ''}">${s.skillPoints}</b></span></div>
+          <div class="header"><h3>${icon('surfer')} Atributos</h3><span>Pontos disponíveis: <b class="${s.skillPoints ? 'accent' : ''}">${s.skillPoints}</b></span></div>
           ${ATTRIBUTE_KEYS.map((k) => `
             <div class="attr-row">
               <span class="name">${ATTRIBUTE_LABELS[k]}<small>${ATTRIBUTE_EN[k]}</small></span>
@@ -217,20 +226,20 @@ export function skillsScreen(host: MenuHost): HTMLElement {
         </div>
         <div style="display:grid;gap:18px">
           <div class="panel section">
-            <h3>Nível</h3>
+            <h3>${icon('achievements')} Nível</h3>
             <div class="profile-row"><b>Nível ${s.level}</b><span class="muted">XP ${s.xp}/${xpToNext(s.level)}</span></div>
             <div class="bar"><span style="width:${(s.xp / xpToNext(s.level)) * 100}%"></span></div>
             <div class="sub muted">Cada nível dá 4 pontos e cada bateria completa dá mais 1. Atributos vão até 100.</div>
           </div>
           <div class="panel section">
-            <h3>Domínio técnico</h3>
+            <h3>${icon('maneuvers')} Domínio técnico</h3>
             ${FAMILIES.map((f) => `
               <div class="profile-row"><span>${FAMILY_LABELS[f]}</span><b>${Math.round(s.mastery[f])}</b></div>
               <div class="bar"><span style="width:${s.mastery[f]}%"></span></div>`).join('')}
             <div class="sub muted">Sobe ao surfar cada família. Soma até +10 de capacidade nas manobras dela.</div>
           </div>
           <div class="panel section">
-            <h3>Estatísticas</h3>
+            <h3>${icon('stats')} Estatísticas</h3>
             <div class="profile-row"><span class="muted">Ondas</span><b>${s.stats.waves}</b></div>
             <div class="profile-row"><span class="muted">Pousos · quedas</span><b>${s.stats.landed} · ${s.stats.falls}</b></div>
             <div class="profile-row"><span class="muted">Comandos Perfect</span><b>${s.stats.perfects}</b></div>
@@ -261,26 +270,26 @@ export function settingsScreen(host: MenuHost): HTMLElement {
       <div class="header"><h1>Configurações</h1><div class="actions"><button class="btn secondary" data-action="back">${icon('back')} Menu</button></div></div>
       <div class="page-body" style="grid-template-columns: minmax(360px, 560px)">
         <div class="panel section">
-          <h3>Qualidade gráfica</h3>
+          <h3>${icon('settings')} Qualidade gráfica</h3>
           <div class="options">
             ${QUALITIES.map((q) => `<button class="btn small secondary ${p.quality === q ? 'selected' : ''}" aria-pressed="${p.quality === q}" data-action="quality" data-q="${q}">${QUALITY[q].label}</button>`).join('')}
           </div>
           <div class="sub muted">${qualityText(p.quality)}</div>
-          <h3>Câmera</h3>
+          <h3>${icon('camera')} Câmera</h3>
           <div class="options">
             <button class="btn small secondary ${p.camera === 'lateral' ? 'selected' : ''}" aria-pressed="${p.camera === 'lateral'}" data-action="camera" data-mode="lateral">Lateral (onda inteira)</button>
             <button class="btn small secondary ${p.camera === 'proxima' ? 'selected' : ''}" aria-pressed="${p.camera === 'proxima'}" data-action="camera" data-mode="proxima">Próxima (corpo e prancha)</button>
           </div>
-          <h3>Som</h3>
+          <h3>${icon('audio')} Som</h3>
           <div class="options">
             <button class="btn small secondary ${p.sound ? 'selected' : ''}" aria-pressed="${p.sound}" data-action="sound" data-on="1">Ligado</button>
             <button class="btn small secondary ${p.sound ? '' : 'selected'}" aria-pressed="${!p.sound}" data-action="sound" data-on="0">Desligado</button>
           </div>
-          <h3>Música tema</h3>
+          <h3>${icon('music')} Música tema</h3>
           <div class="slider-row"><span class="muted">Volume</span>
             <input type="range" min="0" max="100" step="5" value="${p.music}" data-input="music" aria-label="Volume da música"/>
             <b data-label="music">${p.music ? `${p.music}%` : 'desligada'}</b></div>
-          <h3>Progresso</h3>
+          <h3>${icon('replay')} Progresso</h3>
           <div class="sub muted">Apaga nível, atributos, domínio, desbloqueios e recordes. Não dá para desfazer.</div>
           <div><button class="btn danger small" data-action="reset">Reiniciar progressão</button></div>
         </div>
@@ -344,7 +353,7 @@ export function helpModal(parent: HTMLElement) {
   const m = el(`
     <div class="modal-bg">
       <div class="panel modal" style="width:min(640px, calc(100vw - 32px))">
-        <h2>Como jogar</h2>
+        <h2>${icon('controls')} Como jogar</h2>
         <div class="muted">Cada bateria tem 5 ondas. A roleta sorteia um aéreo como desafio da onda (vale ×1,5), mas a onda é sua: desça, suba, faça cavadas e batidas para ganhar velocidade e voe quantas vezes a onda deixar. Só os aéreos pontuam; o resto é o caminho até eles.</div>
         <h3 style="margin:10px 0 4px">Na água</h3>
         <div class="help-list">
@@ -397,9 +406,9 @@ export function pauseMenu(a: PauseActions): HTMLElement {
         <div class="header"><h2>${icon('pause')} Pausa</h2><span class="kbd">Esc</span></div>
         <div class="menu-buttons" style="width:auto">
           <button class="btn" data-action="resume">${icon('play')} Continuar</button>
-          <button class="btn secondary" data-action="camera">${icon('gear')} <span data-label="camera"></span></button>
-          <button class="btn secondary" data-action="sound">${icon('gear')} <span data-label="sound"></span></button>
-          <button class="btn secondary" data-action="music">${icon('gear')} <span data-label="music"></span></button>
+          <button class="btn secondary" data-action="camera">${icon('camera')} <span data-label="camera"></span></button>
+          <button class="btn secondary" data-action="sound">${icon('audio')} <span data-label="sound"></span></button>
+          <button class="btn secondary" data-action="music">${icon('music')} <span data-label="music"></span></button>
           <button class="btn secondary" data-action="help">${icon('help')} Como jogar</button>
           <button class="btn danger" data-action="quit">${icon('close')} Sair da bateria</button>
         </div>

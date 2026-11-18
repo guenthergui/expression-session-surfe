@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" width="1200" height="600">
+<defs><linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#000"/></linearGradient>
+<pattern id="d" width="12" height="12" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><circle cx="6" cy="6" r="5" fill="#fff"/></pattern>
+<mask id="m"><rect width="1200" height="600" fill="url(#g)"/></mask></defs>
+<rect width="1200" height="600" fill="#0A0A0A"/><rect width="1200" height="600" fill="url(#d)" mask="url(#m)"/></svg>

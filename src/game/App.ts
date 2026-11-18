@@ -15,7 +15,7 @@ import { AutoPilot, planFor, type PilotPlan } from '../sim/autopilot';
 import { V_MIN_AIR } from '../sim/takeoff';
 import { DROP_TIME, WaveRun, type RunEvent, type RunParams } from '../sim/waveRun';
 import { World } from '../render/World';
-import { bind } from '../ui/dom';
+import { bind, bumpText } from '../ui/dom';
 import { OUTCOME_TEXT, challengeCard, heatResultScreen, hud, introCard, popup, rideHud, waveResultCard, wheel, wheelTarget } from '../ui/heatViews';
 import { lockerScreen, type LockerFocus, type LockerView } from '../ui/locker';
 import { confirmModal, helpModal, menuScreen, pauseMenu, settingsScreen, setupScreen, skillsScreen, type MenuHost } from '../ui/screens';
@@ -548,7 +548,7 @@ export class App implements MenuHost {
           const [txt, cls] = OUTCOME_TEXT[e.landing.outcome];
           popup(this.ui, a.name, cls, '50%', '20%', true);
           setTimeout(() => popup(this.ui, ok ? `${txt} +${a.points}` : `${txt} ${e.landing.note}`, cls, '50%', '29%'), 220);
-          if (a.challenge) setTimeout(() => popup(this.ui, 'DESAFIO CUMPRIDO ×1,5', 'warn', '50%', '36%'), 500);
+          if (a.challenge) setTimeout(() => popup(this.ui, 'DESAFIO CUMPRIDO ×1,5', 'good', '50%', '36%'), 500);
           if (ok) r.rideAwayAt = r.run.t + e.landing.recovery + RIDE_AWAY_TIME;
           break;
         }
@@ -595,7 +595,7 @@ export class App implements MenuHost {
     const result = this.heat!.resolveWave(endedBy);
     r.result = result;
     r.endAt = r.time + delay;
-    if (result.total > 0) setTimeout(() => popup(this.ui, `Onda: ${result.total}`, 'warn', '50%', '44%', true), 350);
+    if (result.total > 0) setTimeout(() => popup(this.ui, `Onda: ${result.total}`, 'good', '50%', '44%', true), 350);
     this.mountHud();
   }
 
@@ -735,8 +735,8 @@ export class App implements MenuHost {
       q('msg').textContent = msg;
     }
     if (this.hudEl && this.heat) {
-      this.hudEl.querySelector<HTMLElement>('[data-hud=total]')!.textContent = String(this.heat.total);
-      this.hudEl.querySelector<HTMLElement>('[data-hud=combo]')!.textContent = `x${this.heat.combo}`;
+      bumpText(this.hudEl.querySelector<HTMLElement>('[data-hud=total]')!, String(this.heat.total));
+      bumpText(this.hudEl.querySelector<HTMLElement>('[data-hud=combo]')!, `x${this.heat.combo}`);
     }
   }
 
