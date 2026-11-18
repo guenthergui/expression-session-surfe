@@ -184,15 +184,18 @@ export class Ocean {
           // Domínio torcido por ruído: as células perdem a cara de favo e viram manchas irregulares.
           vec2 lp = vWPos.xz * 0.9;
           lp += vec2(oNoise(lp * 0.45 + 3.1), oNoise(lp * 0.45 - 5.7)) * 1.8;
+          // Segunda torção, mais fina: as bordas das células ficam curvas, não retas.
+          lp += vec2(oNoise(lp * 1.9 + 11.0), oNoise(lp * 1.9 - 2.0)) * 0.45;
           float edge = foamLace(lp);
-          float edgeFine = foamLace(lp * 2.7 - vec2(uTime * 0.03, 0.0));
           // Largura das linhas varia; onde a espuma é mais forte as células se enchem.
           float laceW = (0.06 + vFoam * 0.38) * (0.55 + 0.9 * oNoise(lp * 0.35 + 9.0));
-          float lines = (1.0 - smoothstep(laceW * 0.2, laceW * 1.3, edge)) * 0.8;
+          // De perto as linhas da rede viram traços retos demais: ali fica só a espuma em manchas.
+          float lineFade = smoothstep(18.0, 45.0, length(vViewPosition));
+          float lines = (1.0 - smoothstep(laceW * 0.2, laceW * 1.3, edge)) * 0.45 * lineFade;
           float fill = smoothstep(0.58, 0.85, foamP + vFoam * 0.5);
           // Falhas na rede: trechos sem espuma, para não formar uma malha contínua.
           float gaps = smoothstep(0.22, 0.55, oNoise(lp * 0.6 + 21.0) + vFoam * 0.35);
-          float lace = max(lines, fill) * gaps + (1.0 - smoothstep(0.03, 0.08, edgeFine)) * 0.3 * gaps;
+          float lace = max(lines, fill) * gaps;
           float laceF = clamp(lace, 0.0, 1.0) * smoothstep(0.06, 0.42, vFoam) * laceFade;
           float dense = smoothstep(0.55, 0.88, vFoam);
           foamF = max(foamF, laceF * (1.0 - dense));
